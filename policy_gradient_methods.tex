@@ -1,1 +1,337 @@
 \section{Policy Gradient Methods}
+
+\subsection{Generalized Policy Iteration}
+
+\textbf{Generalized Policy Iteration} --- the core idea behind how an AI agent learns to make better decisions over time.
+
+\textbf{The Big Idea}
+
+The agent follows a simple two-step loop, repeated over and over:
+
+\begin{enumerate}
+    \item \textbf{Collect experience} --- Run the current policy (the agent's current strategy, called $\pi$) out in the world and record what happened. These recorded sequences of actions and outcomes are called \textbf{trajectories} --- basically a replay of what the agent did from start to finish.
+    \item \textbf{Improve the policy} --- Look at all those trajectories. Which ones led to good outcomes? Which led to bad ones? Use that information to update the policy so it's slightly smarter than before.
+\end{enumerate}
+
+Then repeat. That's it. The whole loop.
+
+\textbf{What ``Initialize'' Means}
+
+Before the loop starts, you need to give the agent some starting policy. You have three options:
+
+\begin{itemize}
+    \item \textbf{Random} --- just pick actions randomly at first (agent knows nothing)
+    \item \textbf{Imitation learning} --- copy how an expert does it
+    \item \textbf{Heuristics} --- use simple hand-coded rules as a starting point
+\end{itemize}
+
+\textbf{How It Improves Over Time}
+
+The diagram on the right shows three snapshots --- Iteration 1, 50, and 100. Think of each curved line as one trajectory (one attempt the agent made from start to finish).
+
+\begin{itemize}
+    \item Red X = bad outcome (low reward)
+    \item Yellow check = okay outcome
+    \item Green check = good outcome
+\end{itemize}
+
+\begin{tabular}{ll}
+\textbf{Stage} & \textbf{What's happening} \\[4pt]
+Early (Iter 1) & Most attempts fail. The agent is basically guessing. Lots of exploration. \\
+Mid (Iter 50) & Getting better. Some trajectories succeed. Fewer failures. \\
+Late (Iter 100) & Almost all trajectories lead to good outcomes. The policy has converged. \\
+\end{tabular}
+
+\medskip
+
+\textbf{The Key Takeaway}
+
+The agent doesn't need to know the rules of the world in advance. It just tries things, sees what worked, updates itself, and tries again. Over hundreds of iterations, this simple loop produces a very good policy.
+
+
+\subsection{Online Learning}
+
+\textbf{Is this online learning only?}
+
+No. The slide specifically describes a \textbf{batch} update style --- it says ``collect a \textbf{batch} of data (trajectories)'', then update. That's not online learning.
+
+Here's the distinction:
+
+\begin{itemize}
+    \item \textbf{Online learning} --- update the policy after \textbf{every single step} (or every transition). You don't wait.
+    \item \textbf{Batch learning} --- collect a \textbf{full set of trajectories} first, then update the policy once using all of them. That's what the slide shows.
+    \item \textbf{Mini-batch} --- a middle ground; collect a fixed number of episodes, update, repeat.
+\end{itemize}
+
+GPI as a \textbf{general framework} doesn't lock you into one style. It just says ``evaluate $\to$ improve $\to$ repeat.'' How often you update is an implementation choice. That's why both REINFORCE (batch, full episodes) and Actor-Critic methods (online or near-online, step-by-step) are both considered instances of GPI.
+
+\medskip
+
+\textbf{What happens in online learning?}
+
+In online learning, the agent updates the policy \textbf{after every single step} --- no waiting, no batching.
+
+The loop is:
+
+\begin{enumerate}
+    \item Take one action in the environment
+    \item See the result (reward + next state)
+    \item Immediately update the policy
+    \item Take the next action using the already-updated policy
+\end{enumerate}
+
+So the policy is changing \textbf{continuously} as the agent moves through the world. By the time the episode ends, the policy has already been updated dozens or hundreds of times.
+
+The tradeoff: updates are fast and frequent, but each update is noisy because it's based on just one data point instead of a whole batch of experience.
+
+\medskip
+
+\textbf{In online learning agent interacts with real environment directly. Right?}
+
+Not necessarily. ``Online learning'' just means \textbf{updating after every step} --- it says nothing about whether the environment is real or simulated.
+
+\begin{itemize}
+    \item In a \textbf{real environment} --- yes, the agent takes a real action, gets a real reward, updates immediately.
+    \item In a \textbf{simulated environment} --- the agent still updates after every step, it's still online learning. The environment just happens to be a simulator.
+\end{itemize}
+
+The word \textbf{online} refers to the \textbf{frequency of updates}, not the \textbf{type of environment}.
+
+The distinction you might be thinking of is \textbf{Online (real environment)} vs.\ \textbf{Offline / Batch RL (replay buffer or pre-collected dataset)} --- here ``offline'' means the agent learns from a fixed dataset with no new interactions at all. But that's a different axis than simulated vs.\ real.
+
+
+\subsection{Policy Without Q Values}
+
+Page 3 is titled \textbf{``Policy without Q values''} and introduces a new way of thinking about policies.
+
+\textbf{The Setup}
+
+So far in the course, GPI-based algorithms figured out a good policy by first computing $Q(s, a)$ --- the expected reward of taking action $a$ in state $s$. Once you know Q values well enough, you derive the policy from them (e.g., pick the action with the highest Q value). The slide says: what if we skip Q values entirely and just \textbf{directly build the policy itself}?
+
+\textbf{The New Idea: Parameterized Policy}
+
+Instead of storing Q values and deriving the policy from them, we represent the policy as a \textbf{mathematical function with adjustable knobs}. Those knobs are called \textbf{parameters}. We then tune the knobs directly until the policy gets good. This is called \textbf{parameterization} --- you describe the policy using a set of numbers (the parameters), and learning means finding the right numbers.
+
+\textbf{The Equation}
+
+\[
+\pi(a \mid s, \vec{\theta}) = \Pr\{A_t = a \mid S_t = s,\ \vec{\theta}_t = \vec{\theta}\}
+\]
+
+Symbol glossary:
+
+\begin{tabular}{ll}
+\textbf{Symbol} & \textbf{Meaning} \\[4pt]
+$\pi$ & The policy --- the agent's decision-making rule \\
+$a$ & A specific action the agent could take \\
+$s$ & The current state the agent is in \\
+$\vec{\theta}$ & The parameter vector --- a list of numbers that defines the shape of the policy \\
+$d'$ & The number of parameters in $\vec{\theta}$ (its size/dimension) \\
+$\Pr\{\cdot\}$ & Probability of something happening \\
+$A_t$ & The action actually taken at time step $t$ \\
+$S_t$ & The state the agent was in at time step $t$ \\
+$t$ & A specific moment in time during the episode \\
+\end{tabular}
+
+\medskip
+
+The policy $\pi(a \mid s, \vec{\theta})$ gives you the \textbf{probability of choosing action $a$}, given that you're in state $s$ and your policy's parameters are currently set to $\vec{\theta}$. The policy is no longer a lookup table --- it's a function. You plug in the state and the parameters, and it spits out a probability for each possible action. Learning now means \textbf{adjusting $\vec{\theta}$} to make good actions more probable and bad actions less probable.
+
+
+\subsection{Parameterizing Policy}
+
+Page 4 is titled \textbf{``Parameterizing Policy''} and answers a practical question: if the policy is just a function with parameters, what rules must it follow, and what's a concrete example of such a function?
+
+\textbf{Two Rules Every Policy Must Obey}
+
+Since $\pi(a \mid s, \theta)$ outputs a \textbf{probability}, it has to follow the basic laws of probability. The slide gives two constraints.
+
+\textbf{Rule 1}
+
+\[
+\pi(a \mid s, \theta) \geq 0 \quad \text{for all } a \in \mathcal{A} \text{ and } s \in \mathcal{S}
+\]
+
+Symbol glossary:
+
+\begin{tabular}{ll}
+\textbf{Symbol} & \textbf{Meaning} \\[4pt]
+$\pi(a \mid s, \theta)$ & Probability of taking action $a$ in state $s$ with parameters $\theta$ \\
+$\mathcal{A}$ & The set of all possible actions \\
+$\mathcal{S}$ & The set of all possible states \\
+\end{tabular}
+
+\medskip
+
+Every probability the policy outputs must be zero or positive. You can't have a negative probability --- that makes no sense. This is just the most basic rule of probability.
+
+\textbf{Rule 2}
+
+\[
+\sum_{a \in \mathcal{A}} \pi(a \mid s, \theta) = 1 \quad \text{for all } s \in \mathcal{S}
+\]
+
+Symbol glossary:
+
+\begin{tabular}{ll}
+\textbf{Symbol} & \textbf{Meaning} \\[4pt]
+$\sum_{a \in \mathcal{A}}$ & Add up over every possible action in $\mathcal{A}$ \\
+\end{tabular}
+
+\medskip
+
+If you add up the probabilities of all possible actions in any given state, the total must equal 1. The agent has to do \textit{something} --- so all options together must account for 100\% of the probability.
+
+\textbf{The Softmax Function --- A Concrete Example}
+
+\[
+\pi(a \mid s, \theta) = \frac{e^{h(s,a,\theta)}}{\displaystyle\sum_{b \in \mathcal{A}} e^{h(s,b,\theta)}}
+\]
+
+Symbol glossary:
+
+\begin{tabular}{ll}
+\textbf{Symbol} & \textbf{Meaning} \\[4pt]
+$h(s, a, \theta)$ & The preference score for action $a$ in state $s$ --- a raw number produced by the parameters \\
+$e^{(\cdot)}$ & The exponential function --- turns any number into a positive value, amplifies differences \\
+$b$ & A dummy variable representing each action in the sum (used to loop over all actions) \\
+$\displaystyle\sum_{b \in \mathcal{A}} e^{h(s,b,\theta)}$ & Total of exponential scores across all actions --- used to normalize \\
+\end{tabular}
+
+\medskip
+
+First, compute a preference score $h(s, a, \theta)$ for every action. Then take $e$ to the power of each score to make them all positive. Finally, divide each action's score by the total of all scores, so everything adds up to 1. The result is a valid probability for each action. Actions with higher preference scores get higher probabilities, but no action is ever completely ignored (its probability never hits exactly zero).
+
+\textbf{The Greedy Behavior Note}
+
+If the preference $h(s, a, \theta)$ of a particular action grows very large, the policy tends to act greedily. This means: if one action's score gets much bigger than all others, the softmax will assign it nearly 100\% probability and ignore the rest. The policy stops exploring and just always picks that one action --- it becomes \textbf{greedy}.
+
+
+\subsection{Preference Score and Feature Vectors}
+
+\textbf{Who defines the preference score? How is it defined?}
+
+\textbf{The parameters $\theta$ define it} --- specifically, $h(s, a, \theta)$ is a function that you design, and $\theta$ are the learnable weights inside that function.
+
+\textbf{How it's defined in practice}
+
+The most common choice is a \textbf{linear function:}
+\[
+h(s, a, \theta) = \theta^\top x(s, a)
+\]
+where $x(s, a)$ is a feature vector you hand-craft to describe the state-action pair, and $\theta$ is a weight vector the algorithm learns. The dot product gives a single score.
+
+A more powerful choice is a \textbf{neural network} --- you feed the state $s$ in, and the network outputs one score per action. The weights of the network are $\theta$, and they get updated through gradient descent.
+
+\textbf{So who decides the structure?}
+
+\begin{itemize}
+    \item \textbf{You (the designer)} choose the form of $h$ --- linear, neural network, etc.
+    \item \textbf{The learning algorithm} (e.g., REINFORCE) then adjusts $\theta$ automatically over training to make good actions score higher and bad actions score lower.
+\end{itemize}
+
+The preference score has no inherent meaning on its own --- it's just a raw number. What matters is the \textbf{relative difference} between scores across actions, because softmax only cares about which score is bigger, not the absolute values.
+
+\medskip
+
+\textbf{``x(s,a) is a feature vector you hand-craft''. What do you mean by hand-craft?}
+
+It means \textbf{you manually decide} what information to extract from the state-action pair and feed into the function.
+
+\textbf{Example --- a robot navigating a grid}
+
+Say the state $s$ is the robot's position, and action $a$ is ``move right.'' You might hand-craft the feature vector as:
+
+\[
+x(s, a) = \begin{bmatrix} \text{distance to goal} \\ \text{distance to wall} \\ \text{1 if action = right, else 0} \\ \text{1 if action leads to open space, else 0} \end{bmatrix}
+\]
+
+You --- the human --- decided that these four pieces of information matter. You wrote that logic manually. That's what ``hand-crafted'' means.
+
+\textbf{Why is this a problem?}
+
+\begin{itemize}
+    \item You might miss important features
+    \item You might include useless ones
+    \item For complex problems (images, text, games), it's nearly impossible to hand-craft good features
+\end{itemize}
+
+\textbf{That's exactly why neural networks replaced hand-crafted features}
+
+A neural network takes the raw state (e.g., raw pixels) and \textbf{learns its own internal features automatically} from experience. You don't decide what matters --- the network figures it out. The weights $\theta$ inside the network serve the same role as the hand-crafted $x(s, a)$, but nothing is manually designed. So hand-crafting was the old way. Neural networks are the modern way.
+
+
+\subsection{The RL Objective}
+
+Page 6 is titled \textbf{``The RL Objective''} --- it formally states what the agent is actually trying to maximize, and how to estimate it in practice.
+
+\textbf{The Big Goal}
+
+The agent wants to find the best possible parameters $\theta$ for its policy. ``Best'' means: the parameters that produce the highest total reward on average across all possible trajectories.
+
+\textbf{Equation 1 --- Finding the Best Parameters}
+
+\[
+\vec{\theta}^* = \arg\max_{\theta} \ \mathbb{E}_{\tau \sim p_\theta(\tau)} \left[ r(\tau) \right]
+\]
+
+Symbol glossary:
+
+\begin{tabular}{ll}
+\textbf{Symbol} & \textbf{Meaning} \\[4pt]
+$\vec{\theta}^*$ & The optimal (best) parameter vector --- what we're searching for \\
+$\arg\max_\theta$ & ``Give me the value of $\theta$ that makes the thing inside as large as possible'' \\
+$\tau$ & A trajectory --- one full sequence of states and actions from start to finish \\
+$p_\theta(\tau)$ & The probability of trajectory $\tau$ happening under policy $\theta$ \\
+$\mathbb{E}_{\tau \sim p_\theta(\tau)}[\cdot]$ & The average value of something, taken over all trajectories the policy generates \\
+$r(\tau)$ & The total reward collected along trajectory $\tau$ \\
+\end{tabular}
+
+\medskip
+
+We want the parameters $\theta^*$ that make the \textbf{average total reward across all trajectories} as high as possible. We're not optimizing for one lucky run --- we want good performance on average.
+
+\textbf{Equation 2 --- Expanding the Reward}
+
+\[
+= \arg\max_{\theta} \ \mathbb{E}_{\tau \sim p_\theta(\tau)} \left[ \underbrace{\sum_t r(s_t, a_t)}_{J(\theta)} \right]
+\]
+
+Symbol glossary:
+
+\begin{tabular}{ll}
+\textbf{Symbol} & \textbf{Meaning} \\[4pt]
+$\sum_t$ & Add up over every time step $t$ in the trajectory \\
+$r(s_t, a_t)$ & The reward received at time step $t$, for being in state $s_t$ and taking action $a_t$ \\
+$J(\theta)$ & The objective function --- the single number we want to maximize; our score for how good $\theta$ is \\
+\end{tabular}
+
+\medskip
+
+The total reward of a trajectory $r(\tau)$ is just the sum of all the small rewards collected at each individual step. $J(\theta)$ is the name we give to the expected value of that sum --- it's our score for how good a given $\theta$ is.
+
+\textbf{Equation 3 --- How to Actually Compute It}
+
+\[
+J(\theta) \approx \frac{1}{N} \sum_i \sum_t r(s_{i,t}, a_{i,t})
+\]
+
+Symbol glossary:
+
+\begin{tabular}{ll}
+\textbf{Symbol} & \textbf{Meaning} \\[4pt]
+$\approx$ & Approximately equal to \\
+$N$ & Number of trajectories (sample runs) collected \\
+$\sum_i$ & Add up over each trajectory $i$ (each run) \\
+$\sum_t$ & Add up over each time step within that trajectory \\
+$r(s_{i,t}, a_{i,t})$ & Reward at time step $t$ in trajectory $i$ \\
+$\frac{1}{N}$ & Divide by number of trajectories to get the average \\
+\end{tabular}
+
+\medskip
+
+You can't compute the true expectation $J(\theta)$ exactly --- that would require running infinitely many trajectories. Instead, you run $N$ trajectories, add up all the rewards collected across all time steps in all trajectories, and divide by $N$ to get the average. This average is a good enough approximation of the true $J(\theta)$.
+
+\textbf{The Diagram on the Right}
+
+This is exactly what the approximation looks like in practice. The dot on the left is the starting state. Each curved arrow is one trajectory --- one attempt by the agent. Some end in red X (bad outcome, low reward), some in yellow or green checkmark (good or great outcome). You run $N$ of these, average the total rewards, and that gives you your estimate of $J(\theta)$.
