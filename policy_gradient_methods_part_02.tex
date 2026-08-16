@@ -1,0 +1,414 @@
+\section{Gradient of the RL Objective and the REINFORCE Algorithm}
+
+\subsection{Pages 7--8: Deriving the Gradient}
+
+\subsubsection*{Page 7 --- Gradient of the RL Objective}
+
+\textbf{Quick recap.}
+Remember from page 6: the agent's goal is to maximize $J(\theta)$, the average total reward it
+gets by following its policy. To improve the policy, we need to compute the \textbf{gradient}
+of $J(\theta)$ --- basically, the direction in which to nudge the policy knobs ($\theta$) to
+get more reward.
+
+\medskip
+\textbf{Equation 1 --- Rewriting the objective as an integral.}
+
+\[
+  J(\theta)
+  = E_{\tau \sim p_\theta(\tau)}\!\left[\sum_t r(s_t, a_t)\right]
+  = \int p_\theta(\tau)\,r(\tau)\,d\tau
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $J(\theta)$ & The score of the policy --- total expected reward \\
+  $\theta$ & The policy's knobs (parameters) \\
+  $\tau$ & A trajectory --- a full playthrough: $s_1,a_1,s_2,a_2,\ldots$ \\
+  $p_\theta(\tau)$ & Probability of that trajectory happening under policy $\theta$ \\
+  $r(\tau)$ & Total reward collected along that trajectory \\
+  $\int\ldots\,d\tau$ & ``Sum over all possible trajectories'' \\
+\end{tabular}
+
+\medskip
+This is just rewriting the expected reward in math notation. Instead of saying ``average reward
+over many runs,'' we write it as an integral --- summing $p_\theta(\tau)\cdot r(\tau)$ over
+every possible trajectory. The integral is mathematically equivalent to the expectation, which
+sets us up for taking the gradient.
+
+\medskip
+\textbf{Equation 2 --- Taking the gradient (the log-derivative trick).}
+
+\[
+  \nabla_\theta J(\theta)
+  = \int \nabla_\theta p_\theta(\tau)\,r(\tau)\,d\tau
+  = \int p_\theta(\tau)\,\nabla_\theta \log p_\theta(\tau)\,r(\tau)\,d\tau
+  = E_{\tau \sim p_\theta}\!\left[\nabla_\theta \log p_\theta(\tau)\,r(\tau)\right]
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $\nabla_\theta$ & ``How much does this change when we tweak $\theta$?'' (the gradient) \\
+  $\nabla_\theta p_\theta(\tau)$ & Gradient of the trajectory probability --- hard to work with directly \\
+  $\nabla_\theta \log p_\theta(\tau)$ & Gradient of the \textit{log} of the trajectory probability --- much easier \\
+\end{tabular}
+
+\medskip
+We want the gradient of $J(\theta)$, but differentiating $p_\theta(\tau)$ directly is messy
+because it involves the unknown environment dynamics. The \textbf{log-derivative trick} says:
+$p_\theta(\tau)\cdot\nabla_\theta\log p_\theta(\tau) = \nabla_\theta p_\theta(\tau)$.
+This lets us swap the hard term out and rewrite the whole gradient as an \textbf{expectation} ---
+which means we can estimate it just by running the policy and averaging, no integrals needed.
+
+\medskip
+\textbf{The key identity.}
+
+\[
+  p_\theta(\tau)\,\nabla_\theta \log p_\theta(\tau)
+  = p_\theta(\tau)\cdot\frac{\nabla_\theta p_\theta(\tau)}{p_\theta(\tau)}
+  = \nabla_\theta p_\theta(\tau)
+\]
+
+This is just the chain rule of calculus: the derivative of $\log(x)$ is $\frac{1}{x}$.
+Multiplying $p_\theta(\tau)$ on both sides cancels it out, proving the substitution above is valid.
+
+\subsubsection*{Page 8 --- Expanding the Gradient into Something Computable}
+
+Now the slide answers: ``Okay, but how do we actually \textbf{compute}
+$\nabla_\theta\log p_\theta(\tau)$?''
+
+\medskip
+\textbf{Equation 3 --- What is $p_\theta(\tau)$?}
+
+\[
+  p_\theta(\tau)
+  = p(s_1)\prod_{t=1}^{T}\pi_\theta(a_t\mid s_t)\,p(s_{t+1}\mid s_t,a_t)
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $p(s_1)$ & Probability of starting in state $s_1$ (set by the environment, not the agent) \\
+  $\prod_{t=1}^T$ & Multiply together across all time steps $t=1$ to $T$ \\
+  $\pi_\theta(a_t\mid s_t)$ & Policy's probability of picking action $a_t$ when in state $s_t$ \\
+  $p(s_{t+1}\mid s_t,a_t)$ & Environment's probability of moving to $s_{t+1}$ given state and action \\
+\end{tabular}
+
+\medskip
+A trajectory's probability is the product of every decision and every world transition along
+the way. Think of it like the probability of a specific path through a maze --- it's the
+starting probability times the chance you took each turn times the chance the world responded
+the way it did, multiplied across every step.
+
+\medskip
+\textbf{Equation 4 --- Expanding $\log p_\theta(\tau)$.}
+
+\[
+  \nabla_\theta\!\left[
+    \log p(s_1)
+    + \sum_t \log\pi_\theta(a_t\mid s_t)
+    + \log p(s_{t+1}\mid s_t,a_t)
+  \right]
+\]
+
+Taking the log of a product turns it into a sum (since $\log(ABC)=\log A+\log B+\log C$).
+The critical insight is that $\log p(s_1)$ and $\log p(s_{t+1}\mid s_t,a_t)$ do not contain
+$\theta$ at all --- they are controlled by the environment, not the policy. So their gradients
+are \textbf{zero} and they vanish. Only $\log\pi_\theta(a_t\mid s_t)$ survives.
+
+\medskip
+\textbf{Equation 5 --- The practical gradient formula.}
+
+\[
+  \nabla_\theta J(\theta)
+  = E_{\tau\sim p_\theta}\!\left[
+      \left(\sum_{t=1}^T \nabla_\theta\log\pi_\theta(a_t\mid s_t)\right)
+      \left(\sum_{t=1}^T r(s_t,a_t)\right)
+    \right]
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $\sum_{t=1}^T\nabla_\theta\log\pi_\theta(a_t\mid s_t)$ & How to nudge the policy to make each action more or less likely \\
+  $\sum_{t=1}^T r(s_t,a_t)$ & Total reward collected during the trajectory \\
+\end{tabular}
+
+\medskip
+The gradient is the product of two sums --- ``how much did each action's probability change
+when we tweak $\theta$?'' multiplied by ``how much total reward did we get?'' If a trajectory
+got high reward, we push $\theta$ in the direction that made those actions more likely. If it
+got low reward, we push the other way. Crucially, the environment dynamics
+$p(s_{t+1}\mid s_t,a_t)$ are \textbf{completely gone} --- we only need the policy and
+the rewards.
+
+\medskip
+\textbf{Equation 6 --- The sample estimate (how we actually compute it).}
+
+\[
+  \nabla_\theta J(\theta)
+  \approx \frac{1}{N}\sum_i
+    \left(\sum_{t=1}^T\nabla_\theta\log\pi_\theta(a_{i,t}\mid s_{i,t})\right)
+    \left(\sum_{t=1}^T r(s_{i,t},a_{i,t})\right)
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $N$ & Number of sampled trajectories (rollouts) \\
+  $i$ & Index for each sampled trajectory \\
+  $\frac{1}{N}\sum_i$ & Average over all $N$ rollouts \\
+  $a_{i,t},\ s_{i,t}$ & Action and state at time $t$ in the $i$-th trajectory \\
+\end{tabular}
+
+\medskip
+Since we cannot compute an expectation over \textit{all} possible trajectories, we approximate
+it by running the policy $N$ times, computing the gradient formula for each run, and averaging.
+This is the same idea as estimating the average of a die roll by rolling it many times --- the
+more rollouts, the better the estimate. This is the actual algorithm you would implement in
+code.
+
+
+\subsection{Page 9: The Full REINFORCE Algorithm}
+
+This page puts everything from pages 7 and 8 together into one complete, runnable algorithm.
+It has a name: \textbf{REINFORCE}, also called the \textbf{vanilla policy gradient}.
+``Vanilla'' just means the plain, basic version --- no fancy extras yet.
+
+Think of it like a recipe with 4 steps that you repeat over and over until the agent gets good.
+
+\medskip
+\textbf{Step 1 --- Collect experience.}
+
+\[
+  \text{Sample } \{\tau^i\} \text{ from } \pi_\theta(a_t\mid s_t)
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $\{\tau^i\}$ & A collection of trajectories (multiple full playthroughs), indexed by $i$ \\
+  $\pi_\theta(a_t\mid s_t)$ & The current policy --- given state $s_t$, it picks action $a_t$ \\
+\end{tabular}
+
+\medskip
+Run your current policy in the environment multiple times and record what happened each time ---
+which states you visited, which actions you took, and what rewards you got. This is just the
+agent ``playing the game'' several times and taking notes.
+
+\medskip
+\textbf{Step 2 --- Compute the gradient.}
+
+\[
+  \nabla_\theta J(\theta)
+  \approx \sum_i
+    \left(\sum_{t=1}^T\nabla_\theta\log\pi_\theta(a_t^i\mid s_t^i)\right)
+    \left(\sum_{t=1}^T r(s_t^i,a_t^i)\right)
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $\nabla_\theta J(\theta)$ & The gradient --- which direction to push the policy knobs \\
+  $\sum_i$ & Sum (add up) over all collected trajectories \\
+  $\nabla_\theta\log\pi_\theta(a_t^i\mid s_t^i)$ & How much action $a_t$ in trajectory $i$ would change if we tweaked $\theta$ \\
+  $\sum_{t=1}^T r(s_t^i,a_t^i)$ & Total reward collected in trajectory $i$ \\
+\end{tabular}
+
+\medskip
+For each recorded trajectory, multiply ``how sensitive was the policy to its own choices'' by
+``how much reward did it get?'' Add this up across all trajectories. Trajectories with high
+reward push the gradient hard in a direction that makes those actions more likely; trajectories
+with low reward push in the opposite direction. This is the signal that tells us how to improve.
+
+\medskip
+\textbf{Step 3 --- Update the policy.}
+
+\[
+  \vec{\theta} = \vec{\theta} + \alpha\,\nabla_\theta J(\theta)
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $\vec{\theta}$ & The policy's parameters (knobs) --- a vector of numbers \\
+  $\alpha$ & Learning rate --- controls how big a step to take \\
+  $\nabla_\theta J(\theta)$ & The gradient computed in Step 2 \\
+\end{tabular}
+
+\medskip
+Nudge the policy parameters $\theta$ in the direction of the gradient by a small amount
+controlled by $\alpha$. Note it is a \textbf{plus} sign, not minus --- because we are doing
+\textbf{gradient ascent} (climbing toward higher reward), unlike regular gradient descent used
+in supervised learning which minimizes a loss. A large $\alpha$ means big jumps (risky); a
+small $\alpha$ means careful, slow improvement.
+
+\medskip
+\textbf{Step 4 --- Repeat until convergence.}
+
+Loop back to Step~1 with the newly updated policy. Collect new data, compute a new gradient,
+update again. Keep going until the policy stops improving noticeably --- that is convergence.
+
+\medskip
+\textbf{The big picture.} The diagram on the slide shows this loop: collect experience by
+running the policy, then improve the policy using that data, then repeat. REINFORCE looks at
+all collected trajectories, figures out which actions led to good outcomes, and makes those
+actions more likely next time. It is literally trial and error, formalized into math.
+
+
+\subsection{Page 10: Understanding What the Gradient Actually Does}
+
+This page is not introducing new math. It is stepping back and asking: \textbf{what does this
+gradient formula actually mean in plain English?} It is the intuition behind everything derived
+on pages 7--9.
+
+\medskip
+\textbf{The gradient (same formula, new lens).}
+
+\[
+  \nabla_\theta J(\theta)
+  \approx \frac{1}{N}\sum_i
+    \left(\sum_{t=1}^T\nabla_\theta\log\pi_\theta(a_t^i\mid s_t^i)\right)
+    \left(\sum_{t=1}^T r(s_t^i,a_t^i)\right)
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $\frac{1}{N}\sum_i$ & Average over all $N$ collected trajectories \\
+  $\nabla_\theta\log\pi_\theta(a_t^i\mid s_t^i)$ & Direction to push $\theta$ to make action $a_t$ in trajectory $i$ more likely \\
+  $\sum_{t=1}^T r(s_t^i,a_t^i)$ & Total reward of trajectory $i$ --- the weight \\
+\end{tabular}
+
+\medskip
+The total reward of a trajectory acts as a \textbf{multiplier} on the gradient. If a trajectory
+earned high reward, its gradient contribution gets multiplied by a big positive number ---
+meaning those actions get strongly encouraged. If the reward was negative, the multiplier
+flips the sign and those actions get discouraged. The gradient is literally a weighted vote
+from every trajectory.
+
+\medskip
+\textbf{The three key points from the slide.}
+
+\begin{enumerate}
+  \item \textbf{Increase the likelihood of actions you took in high-reward trajectories.}
+        If a playthrough went well, assume the actions you took during it were probably good.
+        Make those actions more likely in the future.
+
+  \item \textbf{Decrease the likelihood of actions you took in negative-reward trajectories.}
+        If a playthrough went badly, assume those actions were probably bad. Make them less
+        likely going forward.
+
+  \item \textbf{Do more of the good stuff, less of the bad stuff.}
+        That is the whole algorithm in one sentence. The math just makes this idea precise
+        and automatic.
+\end{enumerate}
+
+\textbf{The diagram.} The picture shows several trajectories starting from the same point.
+Some end in failure and one ends in success. After running REINFORCE, the policy will shift
+probability mass toward whatever sequence of actions led to the successful path, and away
+from the actions that led to failure. Over many iterations, the successful path becomes more
+and more likely.
+
+\textbf{Why this page matters.} Everything on pages 7 and 8 was dense derivation. This page
+is the payoff --- it tells you that all that math ultimately boils down to one dead-simple
+idea: \textbf{reward good behavior, punish bad behavior, repeat.} REINFORCE is just that idea,
+expressed precisely enough for a computer to execute.
+
+
+\subsection{Pages 11--12: A Problem with the Gradient and the Reward-to-Go Fix}
+
+\subsubsection*{Page 11 --- Quiz: A Problem With the Gradient}
+
+This page gives a concrete worked example to expose a flaw hiding inside the gradient formula.
+The task: \textbf{teach a robot to walk forward.}
+
+The reward is simple:
+\[
+  r(s,a) = \text{forward velocity of the robot (negative if it goes backwards)}
+\]
+
+The agent runs 5 trajectories ($\tau^1$ through $\tau^5$):
+
+\begin{tabular}{lll}
+  Trajectory & What happened & Reward \\[4pt]
+  $\tau^1$ & Falls backwards & Negative \\
+  $\tau^2$ & Falls \textbf{forward} & Small positive \\
+  $\tau^3$ & Stands still & Zero \\
+  $\tau^4$ & One small step forward, then falls backwards & Mixed \\
+  $\tau^5$ & One large step backwards, then small step forwards & Negative overall \\
+\end{tabular}
+
+\medskip
+The question the slide asks: given these 5 trajectories and the gradient formula from page~9,
+\textbf{what will the gradient actually encourage the policy to do?}
+
+The answer: \textbf{it will encourage the robot to fall forward --- not to actually take a
+step forward.}
+
+\medskip
+\textbf{Why? The flaw explained.}
+
+$\tau^2$ (falls forward) gets a positive total reward because at least it was moving in the
+right direction for a moment. $\tau^4$ (takes a step, then falls backward) might net out to a
+small or zero total reward because the backward fall cancels the forward step.
+
+So when the gradient formula multiplies each trajectory's actions by its \textbf{total reward},
+$\tau^2$ gets a stronger positive push than $\tau^4$. The gradient is essentially saying:
+``falling forward is better than stepping forward and then falling backward'' --- which is
+wrong for the actual goal of learning to walk.
+
+This is a \textbf{credit assignment problem}: the total reward of a whole trajectory is being
+used to judge every single action inside it, even actions that happened early and had nothing
+to do with the final outcome.
+
+\subsubsection*{Page 12 --- Improving the Gradient (Reward-to-Go)}
+
+\textbf{The key insight.}
+
+\begin{quote}
+  Policy behavior at time $t$ does not affect rewards at time $t' < t$.
+\end{quote}
+
+In plain English: \textbf{your action right now cannot change what already happened in the
+past.} If you fall at step 5, that cannot hurt or help your reward from steps 1--4. Those
+are already done. So it is unfair --- and noisy --- to judge an action at time $t$ by the
+rewards that came \textbf{before} it. We should only hold an action responsible for the
+rewards that come \textbf{after} it (including the current moment). These future rewards are
+called the \textbf{reward-to-go}.
+
+\medskip
+\textbf{Old gradient (the flawed one).}
+
+\[
+  \nabla_\theta J(\theta)
+  \approx \frac{1}{N}\sum_i
+    \left(\sum_{t=1}^T\nabla_\theta\log\pi_\theta(a_t^i\mid s_t^i)\right)
+    \left(\sum_{t=1}^T r(s_t^i,a_t^i)\right)
+\]
+
+The second sum is the \textbf{total reward of the entire trajectory} --- it judges every
+action by the sum of all rewards, past and future.
+
+\medskip
+\textbf{New gradient (the fix).}
+
+\[
+  \nabla_\theta J(\theta)
+  \approx \frac{1}{N}\sum_i\sum_{t=1}^T
+    \nabla_\theta\log\pi_\theta(a_t^i\mid s_t^i)
+    \left(\sum_{t'=t}^{T} r(s_{t'}^i,a_{t'}^i)\right)
+\]
+
+\begin{tabular}{ll}
+  Symbol & Meaning \\[4pt]
+  $\sum_{t=1}^T$ & Outer sum now goes over each individual timestep $t$, not just trajectories \\
+  $\nabla_\theta\log\pi_\theta(a_t^i\mid s_t^i)$ & Same as before --- how to nudge $\theta$ for action $a_t$ \\
+  $\sum_{t'=t}^{T} r(s_{t'}^i,a_{t'}^i)$ & \textbf{Reward-to-go}: rewards from time $t$ onward only \\
+\end{tabular}
+
+\medskip
+Instead of judging action $a_t$ by the total reward of the whole episode, we only judge it by
+the rewards it could have actually influenced --- everything from time $t$ to the end. This is
+fairer and makes the gradient less noisy, because past rewards that had nothing to do with
+action $a_t$ are no longer polluting its signal.
+
+\medskip
+\textbf{Back to the walking robot.} With reward-to-go, $\tau^4$ (step forward, then fall back)
+gets properly evaluated. The forward step at time $t=1$ gets credited with the rewards from
+$t=1$ onward --- which include the positive forward velocity from that step. The backward fall
+at time $t=2$ only gets blamed for rewards from $t=2$ onward. The gradient now correctly
+separates the good action from the bad one within the same trajectory, instead of blurring
+them together under one total reward number.
