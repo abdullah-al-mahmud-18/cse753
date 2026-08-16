@@ -1,0 +1,497 @@
+\subsection{Quiz: What the Gradient Does --- The Walking Robot (Page 13)}
+
+\textbf{The Setup}
+
+A humanoid robot is learning to walk. The reward $r(s, a)$ is the robot's forward speed.
+Move forward $\to$ positive reward. Move backward $\to$ negative reward.
+
+\textbf{Step 1 --- Collect sample episodes}
+
+The robot tries 4 different episodes under the current policy $\pi_\theta(a_t \mid s_t)$:
+
+\begin{center}
+\begin{tabular}{lll}
+Episode & What happened & Reward \\[4pt]
+$\tau^1$ & Falls forwards & Positive (moved forward) \\
+$\tau^2$ & Slowly stumbles forwards & Positive \\
+$\tau^3$ & Steadily walks forwards & Positive \\
+$\tau^4$ & Runs forwards & Positive \\
+\end{tabular}
+\end{center}
+
+All four got \textbf{positive reward} because all of them moved forward.
+
+\textbf{Step 2 --- Compute the gradient}
+
+\[
+\nabla_\theta J(\theta)
+\approx
+\sum_i^N \sum_{t=1}^T
+\nabla_\theta \log \pi_\theta(a_t^i \mid s_t^i)
+\left( \sum_{t'=t}^{T} r(s_{t'}^i, a_{t'}^i) \right)
+\]
+
+\begin{itemize}
+  \item $\nabla_\theta J(\theta)$ --- the gradient of the total reward with respect to the policy
+    parameters; the ``which direction to improve'' signal
+  \item $\sum_i^N$ --- sum over all $N$ sampled episodes
+  \item $\sum_{t=1}^T$ --- sum over every time step in an episode
+  \item $\nabla_\theta \log \pi_\theta(a_t^i \mid s_t^i)$ --- how much each action's probability
+    should shift
+  \item $\sum_{t'=t}^T r(s_{t'}^i, a_{t'}^i)$ --- total future reward collected from time step $t$
+    onwards (the ``return'')
+\end{itemize}
+
+For every action taken in every episode, multiply ``how much this action's probability should
+change'' by ``how much reward followed from this point.'' Average this over all episodes to get the
+gradient --- the direction to nudge the policy.
+
+\textbf{The Surprising Answer}
+
+Since \textbf{all four episodes got positive reward}, the gradient gives a positive push to
+\textbf{all of them} --- including the falling episode ($\tau^1$). The gradient cannot tell the
+difference between ``fall forward'' and ``run forward.'' It just sees ``positive reward $\to$ do
+more of that.'' So the policy gets nudged toward falling forward, which is clearly not the ideal
+walking behavior.
+
+This is the core problem: \textbf{policy gradient is high-variance} --- its gradient estimates are
+noisy and sensitive to the overall scale of rewards. If everything gets positive reward, everything
+gets reinforced, even bad behavior.
+
+\subsection{Introducing the Baseline (Page 14)}
+
+\textbf{The Core Idea}
+
+Instead of reinforcing an action whenever the reward is positive, reinforce it only when the reward
+is \textbf{better than average}. This is done by subtracting a \textbf{baseline} $b$ from the
+reward.
+
+\textbf{The Modified Gradient Formula}
+
+\[
+\nabla_\theta J(\theta)
+=
+E_{\tau \sim p_\theta}
+\left[
+  \nabla_\theta \log p_\theta(\tau) \cdot (r(\tau) - b)
+\right]
+\]
+
+\begin{itemize}
+  \item $\nabla_\theta J(\theta)$ --- gradient of the objective (direction to improve policy)
+  \item $E_{\tau \sim p_\theta}[\cdot]$ --- average over all episodes sampled from the current
+    policy
+  \item $\nabla_\theta \log p_\theta(\tau)$ --- how much the probability of this episode's actions
+    should shift
+  \item $r(\tau)$ --- total reward of episode $\tau$
+  \item $b$ --- the baseline (a reference number we subtract)
+  \item $(r(\tau) - b)$ --- how much better or worse this episode was compared to the baseline
+\end{itemize}
+
+Instead of asking ``did this episode get good reward?'', we now ask ``did this episode do
+\textbf{better than the baseline}?'' If yes, increase the probability of those actions. If no,
+decrease it. The baseline acts like a reference point --- a ``passing grade.''
+
+\textbf{What is the baseline?}
+
+The simplest choice is the \textbf{average reward} across all sampled episodes:
+
+\[
+b = \frac{1}{N} \sum_i r(\tau)
+\]
+
+\begin{itemize}
+  \item $N$ --- total number of sampled episodes
+  \item $r(\tau)$ --- reward of each episode
+  \item $b$ --- their simple average
+\end{itemize}
+
+This is just computing the average score across all your robot's attempts.
+
+\textbf{Applying it to the walking example}
+
+Say the average reward across the 4 episodes is some value $b$. Now:
+\begin{itemize}
+  \item ``Running forward'' ($\tau^4$) scores well above $b$ $\to$ $(r - b) > 0$ $\to$
+    get a \textbf{positive push} (do more of this)
+  \item ``Falling forward'' ($\tau^1$) scores below $b$ $\to$ $(r - b) < 0$ $\to$
+    get a \textbf{negative push} (do less of this)
+\end{itemize}
+
+Now the gradient correctly discourages falling and encourages running, even though both had
+positive raw rewards.
+
+\textbf{Does subtracting the baseline break anything?}
+
+No --- and this is proved at the bottom of the slide. Subtracting a constant baseline leaves the
+\textbf{expected gradient unchanged} (it is unbiased). The proof shows:
+
+\[
+E[\nabla_\theta \log p_\theta(\tau) \cdot b]
+=
+b\,\nabla_\theta \int p_\theta(\tau)\, d\tau
+=
+b\,\nabla_\theta \cdot 1
+= 0
+\]
+
+The key step: $\int p_\theta(\tau)\, d\tau = 1$ because all probabilities must sum to 1. The
+gradient of a constant (1) is zero. So the baseline contributes \textbf{zero} to the expected
+gradient --- it does not bias the direction of learning at all. But it \textbf{reduces variance}
+significantly, because individual episode rewards are now measured relative to the average instead
+of in absolute terms. Smaller swings in the gradient $=$ more stable learning.
+
+\subsection{Quiz: Sparse Rewards --- Jacket Folding (Page 15)}
+
+\textbf{The Setup}
+
+A robot is learning to fold a jacket. The reward has only three possible values:
+
+\begin{center}
+\begin{tabular}{ll}
+Outcome & Reward \\[4pt]
+Doesn't touch the jacket & 0 \\
+Folded with wrinkles & 0.5 \\
+Neatly folded & 1 \\
+\end{tabular}
+\end{center}
+
+\textbf{Step 1 --- Sample episodes}
+
+\begin{center}
+\begin{tabular}{lll}
+Episode & What happened & Reward \\[4pt]
+$\tau^1$ & Doesn't touch the jacket & 0 \\
+$\tau^2$ & Folds only the sleeves & $\approx 0$ \\
+$\tau^3$ & Flattens but doesn't fold & 0 \\
+$\tau^4$ & Folds the jacket & 1 \\
+\end{tabular}
+\end{center}
+
+Three out of four episodes got zero reward. Only $\tau^4$ succeeded.
+
+\textbf{Step 2 --- Compute the gradient with baseline}
+
+\[
+\nabla_\theta J(\theta)
+\approx
+\sum_i^N \sum_{t=1}^T
+\nabla_\theta \log \pi_\theta(a_t^i \mid s_t^i)
+\left( \sum_{t'=t}^T r(s_{t'}^i, a_{t'}^i) - b \right)
+\]
+
+\begin{itemize}
+  \item $\nabla_\theta J(\theta)$ --- the gradient; tells us which direction to nudge the policy
+  \item $\nabla_\theta \log \pi_\theta(a_t^i \mid s_t^i)$ --- how much each action's probability
+    should shift
+  \item $\sum_{t'=t}^T r(s_{t'}^i, a_{t'}^i)$ --- total future reward from step $t$ onward in
+    episode $i$
+  \item $b$ --- the baseline (average reward across all episodes, which is close to 0 here)
+\end{itemize}
+
+For each action taken in each episode, push that action's probability up or down based on how much
+better-than-average the outcome was. Subtract the baseline $b$ so only above-average results get
+reinforced.
+
+\textbf{What happens in practice here?}
+
+Since most episodes scored 0 and the baseline $b \approx 0$, we get $(r - b) \approx 0$ for
+$\tau^1$, $\tau^2$, $\tau^3$ --- their gradient contributions are essentially \textbf{zero}. Only
+$\tau^4$, which scored 1, gives a meaningful signal.
+
+So the gradient correctly points toward folding behavior --- but the problem is it barely received
+any signal at all. Three out of four episodes contributed almost nothing to learning. This is called
+the \textbf{sparse reward problem}: when success is rare, most of your data is useless, the
+gradient is nearly flat most of the time, and learning is painfully slow and noisy. The baseline
+helped in the walking example (page 13) but did not fully fix this new problem.
+
+\subsection{Vanilla Policy Gradient and the On-Policy Problem (Page 16)}
+
+\textbf{The Full Algorithm}
+
+\begin{enumerate}
+  \item \textbf{Sample} episodes $\{\tau^i\}$ from the current policy $\pi_\theta(a_t \mid s_t)$
+  \item \textbf{Compute} the gradient $\nabla_\theta J(\theta)$ using those episodes
+  \item \textbf{Update} the parameters
+  \item \textbf{Repeat} until the policy stops improving (convergence)
+\end{enumerate}
+
+\textbf{The update equation (Step 3):}
+
+\[
+\vec{\theta} = \vec{\theta} + \alpha\,\nabla_\theta J(\theta)
+\]
+
+\begin{itemize}
+  \item $\vec{\theta}$ --- the policy's parameters (all the knobs controlling what actions the
+    policy picks)
+  \item $\alpha$ --- the learning rate; how big a step to take (too big $\to$ overshoot, too small
+    $\to$ crawl)
+  \item $\nabla_\theta J(\theta)$ --- the gradient; the direction that increases total reward
+\end{itemize}
+
+Take the current parameters $\vec{\theta}$, and nudge them in the direction of the gradient by a
+small amount $\alpha$. Repeat. This is plain gradient ascent --- climbing uphill on the reward
+surface one step at a time.
+
+\textbf{The Big Problem: On-Policy Learning}
+
+Vanilla policy gradient is \textbf{on-policy}, meaning the episodes used to compute the gradient
+in Step 2 must have been collected by the \textbf{exact current version of the policy}. Once you
+update $\theta$ in Step 3, those episodes are immediately outdated and thrown away. You can never
+reuse them.
+
+This creates a painful cycle: collect data $\to$ compute gradient $\to$ update policy $\to$
+\textbf{throw all data away} $\to$ collect new data $\to$ $\ldots$
+
+Every single gradient step requires a fresh batch of episodes. If collecting data is slow (a real
+robot trying things in the physical world, or an expensive simulation), this wastes enormous
+amounts of time.
+
+The natural question is: \textbf{what if we want to reuse data collected by an older version of
+the policy?} The answer is \textbf{off-policy RL using importance sampling} --- a mathematical
+correction that lets you reuse old data by accounting for the fact that the old policy and the new
+policy chose actions differently. This is what the next slides address.
+
+\subsection{Off-Policy Policy Gradient (Page 17)}
+
+\textbf{The Big Idea: Importance Sampling}
+
+Imagine you want to know what score a student would get on a different exam, but you only have
+their answers from the original exam. You can still estimate it --- but you have to \textit{adjust}
+each answer's weight based on how different the two exams are. That adjustment factor is called the
+\textbf{importance sampling ratio}.
+
+Same idea here: we collected episodes using the \textit{old} policy $\theta$, but we want to
+compute the gradient for a \textit{new} (updated) policy $\theta'$. We correct for this mismatch
+by multiplying by the ratio of the two policies' probabilities.
+
+\textbf{Equation 1 --- The Exact Off-Policy Gradient}
+
+\[
+\nabla_{\theta'} J(\theta')
+=
+\mathbb{E}_{\tau \sim p_\theta(\tau)}
+\left[
+  \prod_{t=1}^T
+  \frac{\pi_{\theta'}(a_t \mid s_t)}{\pi_\theta(a_t \mid s_t)}
+  \left( \sum_{t=1}^T \nabla_{\theta'} \log \pi_{\theta'}(a_t \mid s_t) \right)
+  \left( \sum_{t'=t}^T r(s_{t'}, a_{t'}) - b \right)
+\right]
+\]
+
+\begin{itemize}
+  \item $\theta'$ --- the \textbf{new} policy's parameters (the one we are trying to improve)
+  \item $\theta$ --- the \textbf{old} policy's parameters (the one that actually collected the
+    data)
+  \item $\mathbb{E}_{\tau \sim p_\theta(\tau)}[\cdot]$ --- average over episodes collected using
+    the \textbf{old} policy $\theta$
+  \item $\prod_{t=1}^T \frac{\pi_{\theta'}(a_t \mid s_t)}{\pi_\theta(a_t \mid s_t)}$ --- the
+    \textbf{importance sampling correction}: a product of ratios, one per time step; each ratio
+    asks ``how much more or less likely would the new policy have been to take this same action?''
+  \item $\nabla_{\theta'} \log \pi_{\theta'}(a_t \mid s_t)$ --- how much to shift each action's
+    probability under the new policy
+  \item $\sum_{t'=t}^T r(s_{t'}, a_{t'}) - b$ --- future reward from step $t$ onward, minus the
+    baseline
+\end{itemize}
+
+This is the REINFORCE gradient formula from before, but now with a correction factor bolted on ---
+the big product in front. It uses data from the old policy, but multiplies each episode's
+contribution by how differently the new policy would have behaved throughout that episode, step by
+step.
+
+\textbf{The Problem with Equation 1}
+
+The correction factor is a \textbf{product of $T$ ratios} --- one ratio multiplied together for
+every time step in the episode. If the episode is long ($T$ is large), this product becomes
+unstable:
+
+\begin{itemize}
+  \item If each ratio is slightly less than 1 $\to$ the product shrinks toward \textbf{zero}
+    (gradient vanishes --- no learning signal)
+  \item If each ratio is slightly greater than 1 $\to$ the product explodes toward
+    \textbf{infinity} (gradient blows up --- wild, unstable updates)
+\end{itemize}
+
+This is like compounding interest but in a dangerous way. Multiplying together 100 numbers that are
+each 0.9 gives $0.9^{100} \approx 0.000027$ --- basically nothing.
+
+\textbf{Equation 2 --- Switching from Trajectories to Timesteps}
+
+\[
+\nabla_{\theta'} J(\theta')
+\approx
+\frac{1}{N}
+\sum_{i=1}^N \sum_{t=1}^T
+\frac{\pi_{\theta'}(s_{i,t},\, a_{i,t})}{\pi_\theta(s_{i,t},\, a_{i,t})}
+\,\nabla_{\theta'} \log \pi_{\theta'}(a_{i,t} \mid s_{i,t})
+\left( \sum_{t'=t}^T r(s_{i,t'}, a_{i,t'}) - b \right)
+\]
+
+\begin{itemize}
+  \item $\frac{\pi_{\theta'}(s_{i,t},\, a_{i,t})}{\pi_\theta(s_{i,t},\, a_{i,t})}$ --- the ratio
+    of how likely it was to \textbf{be in state $s$ and take action $a$} under the new policy
+    versus the old policy (a single ratio per timestep, not a product over all steps)
+  \item $s_{i,t},\, a_{i,t}$ --- the state and action at time step $t$ in episode $i$
+  \item Everything else is the same as Equation 1
+\end{itemize}
+
+Instead of one giant product across the whole trajectory, we now use a \textbf{single ratio per
+time step} --- comparing the new and old policy just at that one moment. This avoids the
+vanishing/exploding problem because there is no long chain of multiplications. The slide says this
+is ``much less likely to explode/vanish.'' However, the ratio
+$\frac{\pi_{\theta'}(s_{i,t}, a_{i,t})}{\pi_\theta(s_{i,t}, a_{i,t})}$ is the probability of
+both being in state $s$ \textit{and} taking action $a$. The state part is hard to compute --- we
+do not know exactly how often the new policy would visit each state, because state visits depend on
+the full history of decisions. It is ``hard to measure.''
+
+\textbf{Equation 3 --- The Final Practical Form}
+
+\[
+\nabla_{\theta'} J(\theta')
+\approx
+\frac{1}{N}
+\sum_{i=1}^N \sum_{t=1}^T
+\frac{\pi_{\theta'}(a_{i,t} \mid s_{i,t})}{\pi_\theta(a_{i,t} \mid s_{i,t})}
+\,\nabla_{\theta'} \log \pi_{\theta'}(a_{i,t} \mid s_{i,t})
+\left( \sum_{t'=t}^T r(s_{i,t'}, a_{i,t'}) - b \right)
+\]
+
+\begin{itemize}
+  \item $\frac{\pi_{\theta'}(a_{i,t} \mid s_{i,t})}{\pi_\theta(a_{i,t} \mid s_{i,t})}$ --- the
+    ratio of \textbf{just the action probabilities}: given that we are already in state $s$, how
+    much more or less likely is the new policy to pick action $a$ compared to the old policy? The
+    state part is dropped entirely.
+  \item Everything else is the same as Equation 2
+\end{itemize}
+
+The state visitation ratio (the hard-to-measure part) is dropped, and only the action probability
+ratio is kept. This is an approximation --- we are assuming the new and old policy visit states at
+roughly the same frequency --- but it makes the formula practical. Both
+$\pi_{\theta'}(a \mid s)$ and $\pi_\theta(a \mid s)$ are just policy outputs that can be computed
+directly by plugging the state into the policy network.
+
+\textbf{Putting It All Together}
+
+The three equations represent a progression of trade-offs:
+
+\begin{center}
+\begin{tabular}{llll}
+Equation & Correction factor & Explode/vanish? & Easy to compute? \\[4pt]
+Eq.\ 1 & Product over all $T$ steps & Yes, badly & Yes \\
+Eq.\ 2 & Single state-action ratio per step & No & No (state part is hard) \\
+Eq.\ 3 & Single action-only ratio per step & No & \textbf{Yes} \\
+\end{tabular}
+\end{center}
+
+Equation 3 is the final usable formula. It lets you reuse data from an old policy, corrects for
+the mismatch using a simple per-step ratio, and is fully computable. This is the foundation for
+\textbf{off-policy} algorithms that are far more data-efficient than vanilla policy gradient.
+
+\subsection{Off-Policy Policy Gradient: Full Algorithm (Page 18)}
+
+\textbf{The Algorithm (same three steps, different loop)}
+
+\begin{enumerate}
+  \item Sample episodes $\{\tau^i\}$ from policy $\pi_\theta(a_t \mid s_t)$
+  \item Compute $\nabla_\theta J(\theta)$ using those episodes
+  \item Update: $\vec{\theta} = \vec{\theta} + \alpha\,\nabla_\theta J(\theta)$
+\end{enumerate}
+
+\textbf{The update equation:}
+
+\[
+\vec{\theta} = \vec{\theta} + \alpha\,\nabla_\theta J(\theta)
+\]
+
+\begin{itemize}
+  \item $\vec{\theta}$ --- the policy's parameters (all the internal settings that control
+    behavior)
+  \item $\alpha$ --- the learning rate; how big each step is
+  \item $\nabla_\theta J(\theta)$ --- the gradient; the direction that increases reward
+\end{itemize}
+
+Nudge the parameters in the direction that increases reward, scaled by the step size $\alpha$.
+This is the same update as vanilla policy gradient.
+
+\textbf{What is actually different: the loop}
+
+The slide shows two arrows on the algorithm:
+
+\begin{itemize}
+  \item \textbf{Red arrow} (on-policy loop): After step 3, loop back all the way to step 1 ---
+    collect \textbf{new} data before doing anything else.
+  \item \textbf{Orange arrow} (off-policy loop): After step 3, loop back only to step 2 ---
+    recompute the gradient on the \textbf{same old data} using the importance sampling correction
+    from page 17, and update again.
+\end{itemize}
+
+In vanilla policy gradient, after one update you must throw away all your data and go collect more.
+In off-policy policy gradient, you can reuse the same batch and do \textbf{multiple gradient steps}
+on it --- because the importance sampling ratio in the gradient formula already corrects for the
+fact that the policy has changed since the data was collected.
+
+Think of it like studying for an exam: on-policy is like solving one practice problem and then
+immediately going to get a new set --- very inefficient. Off-policy is like solving the same set
+of practice problems multiple times, learning more from them each pass through.
+
+\subsection{The KL Divergence Constraint (Page 19)}
+
+\textbf{The Problem}
+
+When you take many gradient steps on the same batch of old data, the new policy $\theta'$ can
+drift very far from the old policy $\theta$ that collected the data. But the importance sampling
+correction only works well when the two policies are \textit{similar}. Once they diverge
+significantly:
+
+\begin{itemize}
+  \item The old data no longer reflects the states the new policy would actually visit
+  \item The gradient estimate becomes increasingly wrong
+  \item You might make a bad update that seriously hurts the policy's performance --- and you might
+    not even realize it until it is too late
+\end{itemize}
+
+It is like navigating using an old map. A slightly outdated map is fine. But if the roads have
+completely changed, the map will lead you off a cliff.
+
+\textbf{The Fix --- Constrain How Much the Policy Can Change}
+
+\[
+\mathbb{E}_{s \sim \pi_\theta}
+\left[
+  D_{\mathrm{KL}}\!\left(\pi_{\theta'}(\cdot \mid s) \;\|\; \pi_\theta(\cdot \mid s)\right)
+\right]
+\leq \delta
+\]
+
+\begin{itemize}
+  \item $\mathbb{E}_{s \sim \pi_\theta}[\cdot]$ --- average over states that the \textbf{old}
+    policy $\theta$ visited; we are measuring the difference in the situations the old policy
+    actually experienced
+  \item $D_{\mathrm{KL}}(\cdot \| \cdot)$ --- \textbf{KL divergence}: a mathematical ruler for
+    measuring how different two probability distributions are; it equals 0 when they are identical,
+    and grows larger as they diverge
+  \item $\pi_{\theta'}(\cdot \mid s)$ --- the \textbf{new} policy's action choices at state $s$
+    (a full probability distribution over actions)
+  \item $\pi_\theta(\cdot \mid s)$ --- the \textbf{old} policy's action choices at state $s$
+  \item $\delta$ --- a small threshold (your ``budget'' for how much the policy is allowed to
+    change); typically a small number like 0.01
+\end{itemize}
+
+On average across all the states the old policy visited, the new policy must not be ``too
+different'' from the old one. ``Too different'' is measured by KL divergence, and the constraint
+says it must stay at or below the budget $\delta$. This limits how large each policy update can be,
+keeping the new policy close enough to the old one that the recycled data remains trustworthy.
+
+\textbf{Why This Matters}
+
+This constraint is the core idea behind \textbf{Trust Region Policy Optimization (TRPO)} --- one
+of the most important algorithms in modern RL. The name comes from this: you trust the old data
+only within a certain region of policy space. Inside that region (where new and old policies are
+close), the gradient estimate is reliable. Outside it, you cannot trust the old data anymore and
+must stop.
+
+A simpler version of this same idea later became \textbf{PPO (Proximal Policy Optimization)},
+which enforces a similar limit without the full math of a trust region, and is today one of the
+most widely used RL algorithms in practice --- including in training large language models like the
+ones behind ChatGPT.
