@@ -1,0 +1,384 @@
+\bigskip
+
+% -------------------------------------------------------
+% Exchange 1 --- Page 5
+% -------------------------------------------------------
+
+\textbf{Improving Policy Gradients (Page 5)}
+
+\medskip
+
+\textbf{The starting equation (from last time):}
+
+\[
+\nabla_\theta J(\theta) \approx \sum_i \sum_{t=1}^{T} \nabla_\theta \log\pi_\theta(a_t^i \mid s_t^i) \left( \sum_{t'=t}^{T} r(s_{t'}^i, a_{t'}^i) - b \right)
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$\nabla_\theta J(\theta)$ & The direction to improve the policy --- like a compass saying ``adjust your brain this way'' \\
+$\theta$ & The AI's brain settings (numbers inside the neural network) \\
+$\sum_i$ & Add this up across all practice runs \\
+$\sum_{t=1}^{T}$ & Add this up across every step of one run \\
+$\nabla_\theta \log\pi_\theta(a_t^i \mid s_t^i)$ & How confident the AI was in the action it chose at that step \\
+$\sum_{t'=t}^{T} r(\cdots)$ & All the rewards collected \textit{from this step forward} (called \textbf{reward to go}) \\
+$b$ & A baseline --- the average reward --- subtracted to reduce noise \\
+\hline
+\end{tabular}
+\end{center}
+
+The ``reward to go'' part is trying to answer: \textit{``If I took this action in this situation, how much total reward did I collect afterward?''} That quantity --- the expected future reward of taking action $a$ from state $s$ --- is exactly the definition of the \textbf{Q-function}. So the slide says:
+
+\medskip
+
+\textbf{Step 1 --- Reward to go equals the Q-function:}
+
+\[
+\sum_{t=t'}^{T} \mathbb{E}_{\pi_\theta}[r(s_{t'}, a_{t'} \mid s_t, a_t)] = Q_\pi(s_t, a_t)
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$\mathbb{E}_{\pi_\theta}[\cdot]$ & The average outcome if you repeat this many times under policy $\pi$ \\
+$r(s_{t'}, a_{t'})$ & Reward you get at each future step \\
+$Q_\pi(s_t, a_t)$ & The Q-function: expected total future reward for taking action $a_t$ in state $s_t$ \\
+\hline
+\end{tabular}
+\end{center}
+
+Instead of using the messy, noisy actual rewards from one run, we can use the Q-function --- which is the \textit{average} expected reward. The diagram on the slide shows this visually: from state $s$, you take action $a$, then let policy $\pi$ run freely. All those possible future paths spread out like branches, and Q is the expected sum of rewards across all of them. One single run (the ``reward to go'') is just one noisy sample of Q.
+
+\medskip
+
+\textbf{Step 2 --- The baseline b turns out to be the Value function:}
+
+\[
+b = \text{average reward} = \frac{1}{N} \sum_i Q_\pi(s_{i,t}, a_{i,t}) = V_\pi(s_t)
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$\frac{1}{N}\sum_i$ & Average across all N practice runs \\
+$Q_\pi(s_{i,t}, a_{i,t})$ & Q-value for each run's action at this step \\
+$V_\pi(s_t)$ & The Value function --- the average Q across all possible actions the policy would take \\
+\hline
+\end{tabular}
+\end{center}
+
+The baseline $b$ was supposed to be ``the average reward'' to compare against. When you average Q over all the actions the policy would naturally take, you get exactly $V_\pi(s_t)$ --- the Value function. So $b$ isn't arbitrary; it's the average quality of the current state.
+
+\medskip
+
+\textbf{Step 3 --- The whole thing simplifies to the Advantage:}
+
+\[
+\nabla_\theta J(\theta) \approx \sum_i \sum_{t=1}^{T} \nabla_\theta \log\pi_\theta(a_t^i \mid s_t^i) \; A_\pi(s_{i,t},\, a_{i,t})
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$A_\pi(s_{i,t}, a_{i,t})$ & The \textbf{Advantage} --- how much better this specific action was compared to the average action \\
+\hline
+\end{tabular}
+\end{center}
+
+Since $Q - b = Q - V = A$ (the Advantage function), the whole messy reward-to-go-minus-baseline expression collapses into just $A_\pi$. The slide is saying: instead of asking ``did I get good rewards?'', ask ``was this action \textit{better than average} for this situation?'' --- that's a much smarter, cleaner signal for improving the policy. Actions better than average get a positive score $\to$ do them more. Actions worse than average get a negative score $\to$ do them less.
+
+\bigskip
+
+% -------------------------------------------------------
+% Exchange 2
+% -------------------------------------------------------
+
+\textbf{How using \texttt{A} is different from using \texttt{reward\_to\_go - b}? \texttt{reward\_to\_go} = \texttt{Q} and \texttt{b} = \texttt{V}. I see no difference.}
+
+\medskip
+
+You're right --- mathematically they are \textbf{identical}. $A_\pi = Q - V = \text{reward\_to\_go} - b$, by definition. No difference on paper.
+
+The difference is in \textbf{how you compute them in practice}.
+
+\medskip
+
+\textbf{reward\_to\_go $-$ b (pure policy gradient way):}
+
+You run a full trajectory, collect actual rewards, sum them up. That sum \textit{is} your estimate of Q. You subtract the average across runs as b. Both numbers come from \textbf{raw sampled rewards} --- noisy, because any single run is just one random path through the environment.
+
+\medskip
+
+\textbf{A via the Critic (actor-critic way):}
+
+You train a \textbf{neural network} to learn $V(s)$. Then you compute the advantage as:
+\[
+\hat{A}_t = r_t + V_\phi(s_{t+1}) - V_\phi(s_t)
+\]
+You're no longer summing up a long noisy chain of rewards. The network gives you a smooth, learned estimate of value at any state.
+
+\medskip
+
+\textbf{The practical consequence:}
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+ & \texttt{reward\_to\_go $-$ b} & Critic-estimated $A$ \\
+\hline
+Source        & Raw rewards from full runs     & Neural network estimates \\
+Variance      & High                           & Lower \\
+Bias          & Unbiased                       & Can be biased if network is wrong \\
+Data needed   & Many full trajectories         & Can learn from shorter, incomplete ones \\
+\hline
+\end{tabular}
+\end{center}
+
+So the slide isn't introducing a new \textit{math} --- it's showing that $A$ is the right \textbf{target concept}, and the whole point of actor-critic is to \textbf{estimate A better} than raw reward sums allow. The Critic exists precisely to give you a lower-variance estimate of A than you'd get by just running trajectories.
+
+\bigskip
+
+% -------------------------------------------------------
+% Exchange 2 --- Page 6
+% -------------------------------------------------------
+
+\textbf{Online Reinforcement Learning (Page 6)}
+
+\medskip
+
+This slide shows the \textbf{big picture loop} of how the AI actually trains. It has three stages that repeat forever.
+
+\medskip
+
+\textbf{Step 0 --- Start somewhere:}
+
+The policy $\pi$ is initialized --- either randomly (the AI does dumb stuff at first), by copying a human expert (imitation learning), or using some hand-crafted rules (heuristics).
+
+\medskip
+
+\textbf{Then the loop runs:}
+
+\textbf{Stage 1 $\to$ Run policy to collect data.}
+
+Let the AI play in the environment for a while. Record what happened: which states it visited, which actions it took, what rewards it got. This is the raw experience batch.
+
+\medskip
+
+\textbf{Stage 2 $\to$ Fit a model to estimate expected return.}
+
+Use that collected data to train a neural network to estimate $V^\pi$, $Q^\pi$, or $A^\pi$ --- i.e., teach the Critic how good each state or action was. This is the ``how good was that?'' step.
+
+\medskip
+
+\textbf{Stage 3 $\to$ Improve the policy:}
+
+\[
+\theta \leftarrow \theta + \nabla_\theta J(\theta)
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$\theta$               & The AI's brain settings (neural network weights) \\
+$\leftarrow$           & ``Update this to become'' \\
+$\nabla_\theta J(\theta)$ & The direction that makes the policy better \\
+\hline
+\end{tabular}
+\end{center}
+
+Take a step in the direction that improves the policy, using the Advantage estimates from Stage 2. Then go back to Stage 1 with the new, slightly better policy. Repeat.
+
+\bigskip
+
+% -------------------------------------------------------
+% Exchange 2 --- Page 7
+% -------------------------------------------------------
+
+\textbf{Estimating Expected Return (Page 7)}
+
+\medskip
+
+This slide answers: how do we actually compute $A_\pi$? We start from its definition and simplify it into something we can calculate.
+
+\medskip
+
+\textbf{Step 1 --- Definition of Advantage:}
+
+\[
+A_\pi(s_t, a_t) = Q_\pi(s_t, a_t) - V_\pi(s_t)
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$A_\pi(s_t, a_t)$ & How much better action $a_t$ is compared to the average action at state $s_t$ \\
+$Q_\pi(s_t, a_t)$ & Expected total future reward if you take action $a_t$ at state $s_t$, then follow $\pi$ \\
+$V_\pi(s_t)$      & Expected total future reward at state $s_t$ if you just follow $\pi$ normally \\
+\hline
+\end{tabular}
+\end{center}
+
+Advantage is simply Q minus V --- how much better (or worse) your specific action was compared to what the policy would do on average.
+
+\medskip
+
+\textbf{Step 2 --- Expand Q:}
+
+\[
+Q_\pi(s_t, a_t) = \sum_{t=t'}^{T} \mathbb{E}_{\pi_\theta}[r(s_{t'}, a_{t'} \mid s_t, a_t)]
+\]
+
+This is just the definition of Q --- the expected sum of all future rewards from this step onward. Nothing new here, just spelling it out.
+
+\medskip
+
+\textbf{Step 3 --- Rewrite Q using just one step + V:}
+
+\[
+Q_\pi(s_t, a_t) = r(s_t, a_t) + \mathbb{E}_{s_{t+1} \sim p(\cdot \mid s_t, a_t)}[V_\pi(s_{t+1})]
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$r(s_t, a_t)$ & The immediate reward you get right now \\
+$\mathbb{E}_{s_{t+1} \sim p(\cdot \mid s_t, a_t)}[\cdot]$ & The average over all possible next states you could land in \\
+$V_\pi(s_{t+1})$ & The value of wherever you end up next \\
+\hline
+\end{tabular}
+\end{center}
+
+Instead of summing rewards all the way to the end of the episode, we can split it: the reward you get \textit{right now}, plus the value of the \textit{next state} (which already accounts for everything after). This is a much shorter calculation.
+
+\medskip
+
+\textbf{Step 4 --- Approximate by using the actual next state:}
+
+\[
+Q_\pi(s_t, a_t) \approx r(s_t, a_t) + V_\pi(s_{t+1})
+\]
+
+We drop the expectation and just use the real $s_{t+1}$ that actually happened in the run. This is an approximation --- one sample instead of averaging over all possible next states --- but it works well enough in practice.
+
+\medskip
+
+\textbf{Step 5 --- Final practical formula for Advantage:}
+
+\[
+A_\pi(s_t, a_t) \approx r(s_t, a_t) + V_\pi(s_{t+1}) - V_\pi(s_t)
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$r(s_t, a_t)$      & Reward you got right now \\
+$V_\pi(s_{t+1})$   & How good the next state is (estimated by the Critic network) \\
+$V_\pi(s_t)$       & How good the current state was expected to be (estimated by the Critic network) \\
+\hline
+\end{tabular}
+\end{center}
+
+This is the key result. To compute A, you only need: the reward you just got, plus what the Critic says about the next state, minus what the Critic says about the current state. No long reward chains. No waiting until the end of the episode. This difference $r + V(s_{t+1}) - V(s_t)$ is called the \textbf{TD error} (Temporal Difference error). The slide closes by asking: but how do we estimate $V_\pi(s_t)$? --- that's answered on the next slides using Monte Carlo or TD learning.
+
+\bigskip
+
+% -------------------------------------------------------
+% Exchange 2 --- Page 8
+% -------------------------------------------------------
+
+\textbf{Actor-Critic Algorithm (Page 8)}
+
+\medskip
+
+This slide puts it all together as a concrete step-by-step algorithm. Two networks are running: the \textbf{Actor} (the policy, picks actions) and the \textbf{Critic} (the value function, judges states).
+
+\medskip
+
+\textbf{Step 1 --- Sample a batch of data:}
+
+\[
+\{(s_{1,i},\ a_{1,i},\ \cdots,\ s_{T,i},\ a_{T,i})\} \text{ from } \pi_\theta
+\]
+
+Run the current policy in the environment and record everything that happened across N trajectories: every state visited, every action taken, every reward received.
+
+\medskip
+
+\textbf{Step 2 --- Fit the Critic:}
+
+Train the value network $\hat{V}_\phi^{\pi_\theta}$ on the collected data --- i.e., teach it to predict the total future reward from any state it saw. $\phi$ are the Critic's own internal weights, separate from the Actor's $\theta$.
+
+\medskip
+
+\textbf{Step 3 --- Compute the Advantage estimate:}
+
+\[
+\hat{A}^{\pi_\theta}(s_{i,t}, a_{i,t}) = r(s_{i,t}, a_{i,t}) + \hat{V}_\phi^{\pi_\theta}(s_{i,t+1}) - \hat{V}_\phi^{\pi_\theta}(s_{i,t})
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$\hat{A}^{\pi_\theta}$ & Estimated advantage --- the hat $\hat{}$ means it's an approximation, not exact \\
+$r(s_{i,t}, a_{i,t})$ & Actual reward received at this step \\
+$\hat{V}_\phi^{\pi_\theta}(s_{i,t+1})$ & Critic's estimate of how good the \textit{next} state is \\
+$\hat{V}_\phi^{\pi_\theta}(s_{i,t})$ & Critic's estimate of how good the \textit{current} state is \\
+\hline
+\end{tabular}
+\end{center}
+
+This is the TD error from page 7 --- immediate reward plus next-state value minus current-state value. Positive means this action was better than expected; negative means it was worse.
+
+\medskip
+
+\textbf{Step 4 --- Compute the policy gradient:}
+
+\[
+\nabla_\theta J(\theta) \approx \sum_i^N \sum_{t=1}^T \nabla_\theta \log\pi_\theta(a_t^i \mid s_t^i)\, \hat{A}^{\pi_\theta}(s_{i,t}, a_{i,t})
+\]
+
+Same formula as before --- but now the Advantage is estimated by the Critic network, not from raw noisy reward sums.
+
+\medskip
+
+\textbf{Step 5 --- Update the Actor:}
+
+\[
+\theta \leftarrow \theta + \alpha \nabla_\theta J(\theta)
+\]
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it means \\
+\hline
+$\alpha$               & Learning rate --- how big a step to take (a small number like 0.001) \\
+$\nabla_\theta J(\theta)$ & The direction that improves the policy \\
+\hline
+\end{tabular}
+\end{center}
+
+Nudge the Actor's weights in the direction that makes good-advantage actions more likely. Then go back to Step 1 with the updated policy.
+
+\medskip
+
+The diagram on the right shows the data flow: the environment sends a \textit{state} to both the Actor and Critic. The Actor outputs an \textit{action}. The environment responds with a \textit{reward} and a new state. The Critic uses the reward and both states to compute the \textbf{TD error}, which is used to update itself (Critic training) and to provide the Advantage signal back to the Actor (Actor training).

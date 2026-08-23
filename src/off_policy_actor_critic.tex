@@ -1,0 +1,257 @@
+\bigskip
+
+\textbf{Off-Policy Actor-Critic: Version 1 (Multiple Gradient Steps) \& Too Many Gradient Steps}
+
+\bigskip
+
+\textit{The Big Idea}
+
+Imagine a robot learning to play a video game. It tries some moves, records what happened,
+and then uses that recording to get smarter. But here's the trick --- it tries to learn
+\textit{a lot} from that one recording before throwing it away. That's what this page is about.
+
+The algorithm has 5 steps:
+
+\bigskip
+
+\textbf{Step 1 --- Collect experiences.}
+The robot (called the ``actor,'' running policy $\pi_\theta$) plays through the game several
+times and records all the situations (states) and moves (actions) it made.
+
+\bigskip
+
+\textbf{Step 2 --- Train the Critic.}
+A second brain called the ``critic'' ($\hat{V}_\phi$) looks at all those recordings and learns
+to estimate: \textit{``From this situation, how much total reward can we expect?''}
+
+\bigskip
+
+\textbf{Step 3 --- Calculate the Advantage.}
+
+\[
+\hat{A}^{\pi_\theta}(s_{i,t}, a_{i,t}) = r(s_{i,t}, a_{i,t}) + \hat{V}_\phi^{\pi_\theta}(s_{i,t+1}) - \hat{V}_\phi^{\pi_\theta}(s_{i,t})
+\]
+
+\textbf{What each symbol means:}
+\begin{itemize}
+    \item $\hat{A}^{\pi_\theta}$ --- The ``advantage.'' How much \textit{better} (or worse) was this action compared to what we expected?
+    \item $s_{i,t}$ --- The situation (state) the robot was in, at time step $t$, in episode $i$.
+    \item $a_{i,t}$ --- The action the robot took in that situation.
+    \item $r(s_{i,t}, a_{i,t})$ --- The immediate reward earned right after taking that action.
+    \item $\hat{V}_\phi^{\pi_\theta}(s_{i,t+1})$ --- The critic's estimate of future rewards from the \textit{next} situation.
+    \item $\hat{V}_\phi^{\pi_\theta}(s_{i,t})$ --- The critic's estimate of future rewards from the \textit{current} situation.
+\end{itemize}
+
+\textbf{What it's saying:} The advantage is like asking: \textit{``Was this move smarter than average?''} You take the reward you actually got, plus how good the future looks from where you landed, then subtract how good the future was already expected to look from where you started. If that number is positive, the move was better than expected --- a smart move. If negative, it was worse. Think of it like getting a surprise quiz score --- the advantage is how much you beat (or missed) your expected grade.
+
+\bigskip
+
+\textbf{Step 4 --- Calculate how to improve the policy.}
+
+\[
+\nabla_{\theta'} J(\theta') \approx \sum_i \sum_{t=1}^{T}
+\frac{\pi_{\theta'}(a_{i,t}|s_{i,t})}{\pi_\theta(a_{i,t}|s_{i,t})}
+\nabla_{\theta'} \log \pi_{\theta'}(a^i_t|s^i_t)\,
+\hat{A}^{\pi_\theta}(s_{i,t}, a_{i,t})
+\]
+
+\textbf{What each symbol means:}
+\begin{itemize}
+    \item $\nabla_{\theta'} J(\theta')$ --- The direction to nudge the new policy $\theta'$ to make it better (the gradient).
+    \item $\pi_{\theta'}(a_{i,t}|s_{i,t})$ --- The probability the \textit{new} policy would pick that same action in that situation.
+    \item $\pi_\theta(a_{i,t}|s_{i,t})$ --- The probability the \textit{old} policy picked that action (the one that collected the data).
+    \item The fraction --- The \textit{importance weight}. It's a correction factor.
+    \item $\nabla_{\theta'} \log \pi_{\theta'}(\cdot)$ --- How sensitive the new policy is to small changes, for that particular action.
+    \item $\hat{A}^{\pi_\theta}(\cdot)$ --- The advantage we computed in Step 3.
+    \item $\sum_i \sum_{t=1}^{T}$ --- Sum this up across all episodes ($i$) and all time steps ($t = 1$ to $T$).
+\end{itemize}
+
+\textbf{What it's saying:} We collected data using the \textit{old} policy, but we want to improve the \textit{new} policy. The problem is the data was collected under different rules than the ones we're now updating. So we use the fraction (importance weight) as a \textit{correction factor} --- like converting currencies. If the new policy would have chosen that action much more often than the old policy did, the weight is high, meaning that action gets more credit. The whole equation then pushes the new policy to do more of the things that had a high advantage, adjusted fairly for the difference between old and new behavior.
+
+\bigskip
+
+\textbf{Step 5 --- Update the policy.}
+Move the policy in the direction that makes it better, scaled by a learning rate $\alpha$:
+\[
+\theta \leftarrow \theta + \alpha \nabla_\theta J(\theta)
+\]
+
+\textbf{The Warning:} If you do Steps 4--5 too many times on the same old data, things break.
+
+\bigskip
+\hrule
+\bigskip
+
+\textit{The Problem --- Too Many Gradient Steps}
+
+Imagine you studied for a test using last week's notes, but the test is actually on new material.
+The more you study those old notes, the more confident you get --- but in the \textit{wrong} direction.
+The same thing happens here: if you update the policy too many times using old data, the new policy
+drifts so far from the old one that the importance weights become useless lies.
+The new policy ``overfits'' to the old data.
+
+\bigskip
+
+\textbf{Fix 1 --- Put a Leash on the Policy (KL Constraint)}
+
+\[
+\mathbb{E}_{s \sim \pi_\theta}
+\left[ D_{\mathrm{KL}}\!\left(\pi_{\theta'}(\cdot \mid s) \;\|\; \pi_\theta(\cdot \mid s)\right) \right]
+\leq \delta
+\]
+
+\textbf{What each symbol means:}
+\begin{itemize}
+    \item $\mathbb{E}_{s \sim \pi_\theta}$ --- The average, taken over all situations $s$ that the old policy $\pi_\theta$ would visit.
+    \item $D_{\mathrm{KL}}(\cdot \| \cdot)$ --- KL divergence: a way to measure \textit{how different} two probability distributions are. Think of it as the ``distance'' between two sets of rules.
+    \item $\pi_{\theta'}(\cdot \mid s)$ --- The new policy's behavior in situation $s$.
+    \item $\pi_\theta(\cdot \mid s)$ --- The old policy's behavior in situation $s$.
+    \item $\leq \delta$ --- The difference must stay below a small limit $\delta$ (delta), a number you set in advance.
+\end{itemize}
+
+\textbf{What it's saying:} This equation is a rule that says: \textit{``The new policy is not allowed to become too different from the old policy.''} You measure how different they are using KL divergence --- a mathematical way of comparing two sets of decisions. If the new policy starts changing too drastically, you stop it. It's like telling a student: \textit{``You can revise your answers, but don't change more than 10\% of them.''} This idea is used in training modern AI language models (like ChatGPT) to make sure they don't go off the rails during fine-tuning.
+
+\bigskip
+
+\textbf{Fix 2 --- Clip the Importance Weights (The PPO Idea)}
+
+Instead of directly measuring how different the policies are, what if we just \textit{cap} the
+importance weight ($\pi_{\theta'} / \pi_\theta$) so it can never get too large or too small?
+This doesn't stop the policy from changing, but it removes the \textit{reward} for changing too
+much --- the policy has no reason to drift far because it can't exploit extreme importance weights
+anymore. This is the core idea behind \textbf{PPO (Proximal Policy Optimization)}, one of the most
+popular and widely used training algorithms in modern AI, including the training of large language
+models.
+
+\bigskip
+\hrule
+\bigskip
+
+\textbf{Surrogate Objective}
+
+\bigskip
+
+\textit{The Big Idea}
+
+This page answers one smart question: \textit{``Instead of computing a complicated gradient every
+time, can we find a simpler score to just maximize directly?''} The answer is yes --- and that
+simpler score is called the \textbf{surrogate objective}.
+
+\bigskip
+
+\textbf{Step 1 --- Start with the gradient from page 9}
+
+\[
+\nabla_{\theta'} J(\theta') \approx \sum_i \sum_{t=1}^{T}
+\frac{\pi_{\theta'}(a_{i,t}|s_{i,t})}{\pi_\theta(a_{i,t}|s_{i,t})}
+\nabla_{\theta'} \log \pi_{\theta'}(a^i_t|s^i_t)\,
+\hat{A}^{\pi_\theta}(s_{i,t}, a_{i,t})
+\]
+
+This was explained on page 9. The two key pieces being looked at more carefully here are: the
+importance weight fraction, and the log-gradient of the policy.
+
+\bigskip
+
+\textbf{Step 2 --- A Useful Math Trick}
+
+\[
+p_\theta(\tau)\, \nabla_\theta \log p_\theta(\tau) = \nabla_\theta p_\theta(\tau)
+\]
+
+\textbf{What each symbol means:}
+\begin{itemize}
+    \item $p_\theta(\tau)$ --- The probability of a sequence of events $\tau$ (like a full episode of play) under policy with parameters $\theta$.
+    \item $\nabla_\theta \log p_\theta(\tau)$ --- How sensitive the \textit{log} of that probability is to small changes in $\theta$.
+    \item $\nabla_\theta p_\theta(\tau)$ --- How sensitive the \textit{actual} probability is to small changes in $\theta$.
+\end{itemize}
+
+\textbf{What it's saying:} This is a well-known math shortcut called the \textbf{log-derivative trick}. It says: multiplying a probability by the gradient of its own log is the same as just taking the gradient of the probability directly. Think of it like this: if you know the gradient of the ``log score'' and you also know the score itself, you can recover the gradient of the score without doing extra work. This lets us collapse the importance weight and the log-gradient into a single, cleaner expression --- the gradient of the probability ratio. It's a pure algebra trick that rewrites one messy form into another simpler form.
+
+\bigskip
+
+\textbf{Step 3 --- The Surrogate Objective}
+
+Applying that trick to the gradient equation allows us to ``un-wrap'' the log and arrive at a plain
+function --- not a gradient, but a score you can just maximize directly:
+
+\[
+\tilde{J}(\theta') \approx \sum_{t,i}
+\frac{\pi_{\theta'}(a_{i,t} \mid s_{i,t})}{\pi_\theta(a_{i,t} \mid s_{i,t})}\,
+\hat{A}^{\pi_\theta}(s_{t,i}, a_{t,i})
+\]
+
+\textbf{What each symbol means:}
+\begin{itemize}
+    \item $\tilde{J}(\theta')$ --- The surrogate objective. A fake (but useful) score that stands in for the real objective $J(\theta')$. The tilde signals it's a substitute.
+    \item $\pi_{\theta'}(a_{i,t} \mid s_{i,t})$ --- The probability that the \textit{new} policy picks action $a$ in situation $s$.
+    \item $\pi_\theta(a_{i,t} \mid s_{i,t})$ --- The probability that the \textit{old} policy picked that same action.
+    \item The fraction --- The importance weight, correcting for the fact that data came from the old policy.
+    \item $\hat{A}^{\pi_\theta}(s_{t,i}, a_{t,i})$ --- The advantage: how much better that action was compared to average.
+    \item $\sum_{t,i}$ --- Sum over all time steps $t$ and all episodes $i$.
+\end{itemize}
+
+\textbf{What it's saying:} The surrogate objective $\tilde{J}(\theta')$ is a simplified, easy-to-maximize score. Instead of computing a complex gradient formula at every step, you just directly maximize this expression. It asks: \textit{``For every action taken in the old recordings, how much more (or less) likely would the new policy be to make that same move, and was that move a good one?''} If the new policy gives higher probability to good moves (high advantage) and lower probability to bad ones (negative advantage), the score goes up. The key insight is that when the new policy is still close to the old one ($\theta' \approx \theta$), taking the gradient of $\tilde{J}$ gives you the exact same result as taking the gradient of the real objective $J$. So you can optimize $\tilde{J}$ as a stand-in --- it's mathematically equivalent at the point that matters, and much easier to work with.
+
+\bigskip
+
+\textbf{The Two Warnings at the Bottom}
+\begin{itemize}
+    \item \textbf{Good news:} Maximizing $\tilde{J}$ naturally pushes the policy to take good actions more often --- exactly what we want.
+    \item \textbf{Bad news:} Because $\tilde{J}$ rewards giving higher probability to good actions, the policy is tempted to change \textit{a lot} --- drifting far from the old policy. If you run too many gradient steps on $\tilde{J}$ with the same old data, the ratio $\pi_{\theta'}/\pi_\theta$ grows huge and meaningless, and the policy overfits. This is precisely the ``too many gradient steps'' problem from page 10, and why PPO and KL constraints exist.
+\end{itemize}
+
+\bigskip
+\hrule
+\bigskip
+
+\textbf{How did the log part of the initial equation vanish?}
+
+The log vanishes because of the math trick shown in the middle of the page. Here's exactly how,
+step by step.
+
+Look at the two boxed parts in Equation 1 together:
+
+\[
+\frac{\pi_{\theta'}(a|s)}{\pi_\theta(a|s)} \cdot \nabla_{\theta'} \log \pi_{\theta'}(a|s)
+\]
+
+The math trick says:
+\[
+p(\tau) \cdot \nabla \log p(\tau) = \nabla p(\tau)
+\]
+
+Apply that to the numerator only --- $\pi_{\theta'}(a|s)$ is sitting in the fraction AND inside
+the log. So:
+\[
+\pi_{\theta'}(a|s) \cdot \nabla_{\theta'} \log \pi_{\theta'}(a|s) = \nabla_{\theta'}\, \pi_{\theta'}(a|s)
+\]
+
+Plug that back in:
+\[
+\frac{\pi_{\theta'}(a|s) \cdot \nabla_{\theta'} \log \pi_{\theta'}(a|s)}{\pi_\theta(a|s)}
+= \frac{\nabla_{\theta'}\, \pi_{\theta'}(a|s)}{\pi_\theta(a|s)}
+\]
+
+Since $\pi_\theta$ (the old policy) \textbf{doesn't depend on $\theta'$}, it's just a constant
+with respect to the gradient. So you can pull $\nabla_{\theta'}$ outside:
+\[
+= \nabla_{\theta'} \left[ \frac{\pi_{\theta'}(a|s)}{\pi_\theta(a|s)} \right]
+\]
+
+Now the full equation becomes:
+\[
+\nabla_{\theta'} J(\theta') = \nabla_{\theta'} \sum_{t,i}
+\frac{\pi_{\theta'}(a_{i,t}|s_{i,t})}{\pi_\theta(a_{i,t}|s_{i,t})}\,
+\hat{A}^{\pi_\theta}(s_{t,i}, a_{t,i})
+\]
+
+The right-hand side is just $\nabla_{\theta'}$ acting on $\tilde{J}(\theta')$. So:
+\[
+\nabla_{\theta'} J(\theta') = \nabla_{\theta'} \tilde{J}(\theta')
+\]
+
+The log didn't ``vanish'' --- it got absorbed. The log-gradient and the importance weight were
+multiplied together, and the trick collapsed that product into a single clean gradient of the ratio.
+What's left inside the gradient sign is exactly $\tilde{J}$. Since the gradients match, you can
+just maximize $\tilde{J}$ directly instead of dealing with the log form.

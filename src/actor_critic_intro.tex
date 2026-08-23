@@ -1,0 +1,234 @@
+\section{Actor Critic Method}
+
+% -------------------------------------------------------
+% Exchange 1
+% -------------------------------------------------------
+
+\textbf{What is value function and what is Q function.}
+
+\medskip
+
+\textbf{Value Function $V^\pi(s)$}
+
+\textbf{What it answers:} ``How good is it to \textit{be} in state $s$?''
+
+More precisely: if you're currently in state $s$ and you follow policy $\pi$ from that point forward, what is the \textbf{expected total (sum of future) reward} you'll collect?
+
+\[
+V^\pi(s) = \mathbb{E}_\pi \left[ \sum_{t=0}^{\infty} \gamma^t r_t \;\bigg|\; s_0 = s \right]
+\]
+
+It doesn't care which action you take — it averages over whatever actions $\pi$ would naturally choose. So $V^\pi(s)$ is purely a \textbf{state-level} signal.
+
+\medskip
+
+\textbf{Q-Function $Q^\pi(s, a)$}
+
+\textbf{What it answers:} ``How good is it to be in state $s$, take a \textit{specific} action $a$, and then follow $\pi$?''
+
+The key difference: you \textbf{commit to a specific action first}, then hand control back to the policy.
+
+\[
+Q^\pi(s, a) = \mathbb{E}_\pi \left[ \sum_{t=0}^{\infty} \gamma^t r_t \;\bigg|\; s_0 = s,\; a_0 = a \right]
+\]
+
+This is a \textbf{state-action level} signal — it lets you compare individual actions against each other.
+
+\medskip
+
+\textbf{The Key Relationship}
+
+\[
+V^\pi(s) = \mathbb{E}_{a \sim \pi(\cdot|s)}\left[Q^\pi(s, a)\right]
+\]
+
+$V^\pi(s)$ is just $Q^\pi(s, a)$ \textbf{averaged over all actions weighted by the policy}. $V$ sees the average picture; $Q$ sees the picture for each individual action.
+
+\medskip
+
+\textbf{Why Both Exist}
+
+This distinction is what makes the \textbf{Advantage function} possible:
+
+\[
+A^\pi(s, a) = Q^\pi(s, a) - V^\pi(s)
+\]
+
+$A^\pi$ tells you how much better (or worse) action $a$ is compared to what the policy would do on average at state $s$. This is the core signal used by the \textbf{Critic} in Actor-Critic methods to give the Actor more informative feedback than raw rewards.
+
+\bigskip
+
+% -------------------------------------------------------
+% Exchange 2
+% -------------------------------------------------------
+
+\textbf{How V is Q averaged over all actions? Explain this with a concrete example.}
+
+\medskip
+
+\textbf{Concrete Example}
+
+Say you're at state $s$, and your policy $\pi$ has \textbf{3 possible actions} with these probabilities and Q-values:
+
+\begin{center}
+\begin{tabular}{lcc}
+\hline
+Action & $\pi(a|s)$ --- probability & $Q^\pi(s, a)$ --- expected future reward \\
+\hline
+$a_1$ & 0.5 & 10 \\
+$a_2$ & 0.3 & 4  \\
+$a_3$ & 0.2 & 1  \\
+\hline
+\end{tabular}
+\end{center}
+
+\medskip
+
+\textbf{What $V^\pi(s)$ Is}
+
+$V^\pi(s)$ asks: ``If I just \textit{run policy $\pi$} from state $s$ --- without picking any specific action myself --- what reward do I expect?''
+
+Since $\pi$ will pick $a_1$ 50\% of the time, $a_2$ 30\%, $a_3$ 20\%, the expected reward is just the \textbf{probability-weighted sum of Q-values}:
+
+\[
+V^\pi(s) = 0.5 \times 10 + 0.3 \times 4 + 0.2 \times 1 = 5 + 1.2 + 0.2 = \mathbf{6.4}
+\]
+
+That's it. $V$ doesn't have any secret information — it's literally just averaging $Q^\pi(s, a)$ weighted by how often the policy \textit{would} choose each action.
+
+\medskip
+
+\textbf{Why This Makes Intuitive Sense}
+
+\begin{itemize}
+    \item $Q^\pi(s, a_1) = 10$ $\to$ if you \textit{commit} to $a_1$, you expect 10.
+    \item But you don't always take $a_1$. Half the time you do, and the other half you take worse actions.
+    \item So the \textbf{actual expected reward from state $s$} --- without fixing an action --- is 6.4, which is lower than the best possible Q.
+\end{itemize}
+
+$V^\pi(s) = 6.4$ is the \textbf{average performance of the policy at state $s$}. $Q^\pi(s, a)$ is the performance of \textbf{one specific choice}.
+
+\medskip
+
+\textbf{The Advantage Connection}
+
+This is why the Advantage function is meaningful:
+
+\begin{itemize}
+    \item $A^\pi(s, a_1) = 10 - 6.4 = \mathbf{+3.6}$ $\to$ $a_1$ is better than average
+    \item $A^\pi(s, a_2) = 4 - 6.4 = \mathbf{-2.4}$ $\to$ $a_2$ is worse than average
+    \item $A^\pi(s, a_3) = 1 - 6.4 = \mathbf{-5.4}$ $\to$ $a_3$ is much worse than average
+\end{itemize}
+
+$V$ acts as the \textbf{baseline}. $Q$ minus that baseline tells you which actions are actually worth doing more often --- which is exactly the signal the Actor uses to improve.
+
+\bigskip
+
+% -------------------------------------------------------
+% Exchange 3
+% -------------------------------------------------------
+
+\textbf{What does A tells us?}
+
+\medskip
+
+$A^\pi(s, a)$ tells you: \textbf{``Is this action better or worse than what the policy would do on average at this state --- and by how much?''}
+
+\begin{itemize}
+    \item $A > 0$ $\to$ this action is better than average. Do it more.
+    \item $A < 0$ $\to$ this action is worse than average. Do it less.
+    \item $A = 0$ $\to$ this action is exactly as good as following the policy blindly.
+\end{itemize}
+
+From the previous example:
+
+\begin{itemize}
+    \item $a_1$ has $A = +3.6$ $\to$ push the policy to favor $a_1$ more
+    \item $a_2$ has $A = -2.4$ $\to$ push the policy away from $a_2$
+    \item $a_3$ has $A = -5.4$ $\to$ strongly push away from $a_3$
+\end{itemize}
+
+The key insight: \textbf{raw reward tells you if something was good in absolute terms. Advantage tells you if it was good \textit{relative to your other options}.} That relative comparison is what makes the gradient update meaningful --- instead of just chasing high-reward actions, the agent learns which actions are genuinely better than its current behavior.
+
+\bigskip
+
+% -------------------------------------------------------
+% Exchange 4  (matches "Explain page N..." format)
+% -------------------------------------------------------
+
+\textbf{Issues with Policy Gradient Methods}
+
+\medskip
+
+\textbf{The Big Idea}
+
+This slide is asking: \textbf{``What's wrong with how the AI currently learns?''} The answer is --- it's clumsy. It blames or rewards the \textit{entire sequence of actions} together, even when only one action was actually good or bad. This causes two big problems, shown through two examples.
+
+\medskip
+
+\textbf{The Equation}
+
+\[
+\nabla_\theta J(\theta) \approx \sum_i \sum_{t=1}^{T} \nabla_\theta \log\pi_\theta(a_t^i \mid s_t^i)
+\left( \sum_{t'=t}^{T} r(s_{t'}^i, a_{t'}^i) - b \right)
+\]
+
+\textbf{What each symbol means:}
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Symbol & What it is \\
+\hline
+$\nabla_\theta J(\theta)$ & The direction to tweak the policy to get better rewards \\
+$\theta$ & The knobs inside the AI's brain (its neural network weights) \\
+$\sum_i$ & ``Add this up across all tries (trajectories)'' \\
+$\sum_t$ & ``Add this up across every time step in one try'' \\
+$\log\pi_\theta(a_t^i \mid s_t^i)$ & How likely the policy thought action $a$ was in state $s$ \\
+$\sum_{t'=t} r(\cdots)$ & Total reward collected from this moment forward (reward to go) \\
+$b$ & A baseline --- the average reward, subtracted to reduce noise \\
+\hline
+\end{tabular}
+\end{center}
+
+\textbf{What the equation is saying, in plain English:}
+
+For every action the AI took, look at all the rewards it collected \textit{after} that action. If those future rewards were high, nudge the AI to make that action more likely next time. If they were low, nudge it to avoid that action. Subtract $b$ so you're comparing to the average, not reacting to raw numbers.
+
+\medskip
+
+\textbf{Problem 1: The Walking Robot}
+
+The robot takes \textbf{one small step forward}, then \textbf{falls backwards}. The total reward for the trip is negative (it fell!).
+
+The equation sees the negative total reward and says: \textit{``That step forward must have been bad --- do it less!''}
+
+But that's \textbf{wrong}. The step forward was actually a good move. The fall was the problem. The algorithm can't tell the difference --- it punishes the whole sequence including the good part.
+
+\begin{itemize}
+    \item[$\times$] It pushes down the chance of ``step forward'' even though stepping forward was fine.
+    \item[$\times$] It wastes the data because it learned the wrong lesson.
+\end{itemize}
+
+\medskip
+
+\textbf{Problem 2: The Jacket-Folding Robot}
+
+Three different practice runs (trajectories):
+
+\begin{itemize}
+    \item $\tau^2$ --- folds only the sleeves
+    \item $\tau^3$ --- flattens the jacket only
+    \item $\tau^4$ --- fully folds the jacket (gets reward)
+\end{itemize}
+
+Only $\tau^4$ gets a reward of 1. $\tau^2$ and $\tau^3$ get \textbf{zero reward} because the task wasn't fully done.
+
+The algorithm sees zero reward for $\tau^2$ and $\tau^3$ and says: \textit{``Nothing useful happened there, ignore it.''}
+
+But that's \textbf{also wrong}. Folding the sleeves and flattening the jacket are \textit{progress} --- they were good intermediate steps that the AI should learn to repeat.
+
+\begin{itemize}
+    \item[$\times$] With sparse rewards, the AI wastes most of its practice runs.
+    \item[$\checkmark$] The question the slide ends on: \textbf{Can we teach the AI to know what's good and bad, even mid-task?} --- That's exactly what Actor-Critic methods solve.
+\end{itemize}
