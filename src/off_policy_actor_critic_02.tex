@@ -1,0 +1,300 @@
+\bigskip
+
+% ─────────────────────────────────────────────
+% Pages 15–21: Off-Policy Actor-Critic Methods
+% ─────────────────────────────────────────────
+
+\textbf{Page 15 --- The Big Question: Can We Reuse Old Data?}
+
+\medskip
+So far, the actor-critic algorithm only learns from data it just collected.
+Once you are done with a batch of experience, you throw it away. That is wasteful.
+Page 15 asks: What if we saved every single experience the agent ever had,
+and learned from ALL of it --- not just the latest batch?
+
+\medskip
+\textbf{Two key ideas introduced:}
+\begin{enumerate}
+    \item \textbf{Replay Buffer} --- a giant diary that stores every
+          (state, action, reward, next-state) experience the agent has ever seen.
+    \item \textbf{Fix the equations} --- the original equations assume you only
+          use fresh data. If you use old data, you need to adjust the math.
+\end{enumerate}
+
+\bigskip
+
+\textbf{Page 16 --- First Attempt: Plug the Replay Buffer In}
+
+\medskip
+They take the standard algorithm and simply say: instead of doing steps on one
+fresh batch, do them on a small random sample (``minibatch'') pulled from the
+replay buffer --- which contains all past experience.
+
+\medskip
+\textbf{The 5-step algorithm (first attempt):}
+\begin{enumerate}
+    \item Collect fresh experience and add it to the replay buffer.
+    \item Fit the value function $\hat{V}^{\pi}_{\phi}$ to reward sums from the buffer.
+    \item Calculate how good each (state, action) was using the advantage:
+          \[
+              \hat{A}^{\pi}(s_i, a_i) = r(s_i, a_i) + \hat{V}^{\pi}_{\phi}(s'_i) - \hat{V}^{\pi}_{\phi}(s_i)
+          \]
+    \item Estimate the policy gradient.
+    \item Update the policy using that gradient.
+\end{enumerate}
+
+Steps 2--4 are done on a minibatch randomly sampled from all previous data ---
+that is the key change.
+
+\bigskip
+
+\textbf{Page 17 --- Two Things Are Broken}
+
+\medskip
+Once they lay out the algorithm, they realize there is a serious problem.
+When $V^{\pi}$ is fit on ALL data from the replay buffer (which comes from many
+different past versions of the policy), the value function represents some kind
+of average over old policies --- not the current policy. This is a problem
+because the value function is supposed to tell you how good the \textit{current}
+policy is.
+
+\medskip
+\textbf{Two things broken:}
+\begin{itemize}
+    \item \textbf{The target is wrong.} The value estimate $y = r + \gamma \hat{V}(s')$
+          uses a $\hat{V}$ trained on a mix of old policies, so it does not correctly
+          represent the current policy's future rewards.
+    \item \textbf{The likelihood is wrong.} In the gradient step, you are using the
+          log probability of actions that old versions of the policy took --- not
+          actions the current policy would take.
+\end{itemize}
+
+\bigskip
+
+\textbf{Page 18 --- The Fix: Use $Q(s, a)$ Instead of $V(s)$}
+
+\medskip
+\textbf{Core insight:} Instead of estimating how good a state is ($V$), estimate
+how good a state + action pair is ($Q$). This matters because $Q(s, a)$ can be
+computed from any experience, regardless of which policy collected it.
+
+\medskip
+\textbf{The equation:}
+\[
+    Q^{\pi_\theta}(s, a)
+    = r(s, a)
+    + \gamma \,
+      \mathbb{E}_{\substack{s' \sim p(\cdot|s,a) \\ \bar{a}' \sim \pi_\theta(\cdot|s')}}
+      \!\left[ Q^{\pi_\theta}(s', \bar{a}') \right]
+\]
+
+\medskip
+\textbf{Symbol table:}
+
+\begin{tabular}{p{5.5cm} p{8.5cm}}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$Q^{\pi_\theta}(s, a)$ & Q-value: expected total future reward starting in state $s$, taking action $a$, then following policy $\pi_\theta$ \\[4pt]
+$r(s, a)$ & Immediate reward for taking action $a$ in state $s$ \\[4pt]
+$\gamma$ & Discount factor (0 to 1); sooner rewards are worth more than later ones \\[4pt]
+$\mathbb{E}$ & Expected value --- average over many possible outcomes \\[4pt]
+$s' \sim p(\cdot \mid s, a)$ & Next state sampled from the environment's transition function \\[4pt]
+$\bar{a}' \sim \pi_\theta(\cdot \mid s')$ & Next action sampled from the \textit{current} policy at next state $s'$ \\[4pt]
+$Q^{\pi_\theta}(s', \bar{a}')$ & Q-value of the next state-action pair \\
+\hline
+\end{tabular}
+
+\medskip
+The quality of taking action $a$ in state $s$ equals the immediate reward right
+now, plus the discounted quality of whatever state and action comes next.
+The ``next action'' $\bar{a}'$ must be sampled from the \textit{current} policy ---
+not retrieved from the replay buffer --- because we want to know how good the
+current policy is, not some past version.
+The approach: sample $(s, a, s')$ from the replay buffer (old data is fine),
+but sample $\bar{a}'$ fresh from the current policy.
+Then the target becomes $y = r(s, a) + \gamma Q(s', \bar{a}')$, and you
+train the Q-network toward this target.
+
+\bigskip
+
+\textbf{Page 19 --- Fixing the Value Function: The Updated Algorithm}
+
+\medskip
+This page rewrites the algorithm with the fix from page 18 applied.
+
+\medskip
+\textbf{The key fix in step 3:}
+\begin{itemize}
+    \item \textbf{Old (broken):} Update $\hat{V}^{\pi}_\phi$ using targets
+          $y_i = r_i + \gamma \hat{V}^{\pi}_\phi(s'_i)$
+    \item \textbf{New (fixed):} Update $\hat{Q}^{\pi}_\phi$ using targets
+          $y_i = r(s_i, a_i) + \gamma \hat{Q}^{\pi}_\phi(s'_i, a'_i)$,
+          where $a'_i \sim \pi_\theta(\cdot \mid s'_i)$ --- sampled from the
+          \textit{current} policy, not from the replay buffer.
+\end{itemize}
+
+\medskip
+Using a fresh action fixes the broken target problem --- the Q-value target now
+reflects the current policy. The states $s_i$ can still come from the replay buffer;
+only the next actions need to be fresh.
+
+\bigskip
+
+\textbf{Page 20 --- Two More Refinements}
+
+\medskip
+\textbf{Refinement 1: Drop the baseline, just use $Q$ directly.}
+
+Instead of computing the advantage $\hat{A}(s, a) = Q(s, a) - V(s)$, just use
+$Q(s, a)$ directly. This has higher variance (noisier estimates), but since you
+now have a huge replay buffer full of data, the extra noise is acceptable ---
+more data cancels it out.
+
+\medskip
+\textbf{Refinement 2: Sample fresh actions for the gradient step too.}
+
+\[
+    \nabla_\theta J(\theta)
+    \approx \frac{1}{N} \sum_i
+    \nabla_\theta \log \pi_\theta(\bar{a}_i \mid s_i) \,
+    \hat{Q}^{\pi}(s_i, \bar{a}_i)
+\]
+
+\medskip
+\textbf{Symbol table:}
+
+\begin{tabular}{p{5.5cm} p{8.5cm}}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$\nabla_\theta J(\theta)$ & Gradient: the direction to nudge policy parameters $\theta$ to improve total reward \\[4pt]
+$\frac{1}{N} \sum_i$ & Average over $N$ sampled examples \\[4pt]
+$\nabla_\theta \log \pi_\theta(\bar{a}_i \mid s_i)$ & How much the log-probability of action $\bar{a}_i$ changes when you tweak $\theta$ \\[4pt]
+$\bar{a}_i$ & Fresh action sampled from current policy $\pi_\theta$ at state $s_i$ --- NOT the old stored action \\[4pt]
+$\hat{Q}^{\pi}(s_i, \bar{a}_i)$ & Estimated quality of taking fresh action $\bar{a}_i$ in state $s_i$ \\[4pt]
+$\pi_\theta(\bar{a}_i \mid s_i)$ & Probability the current policy assigns to action $\bar{a}_i$ given state $s_i$ \\
+\hline
+\end{tabular}
+
+\medskip
+To improve the policy, look at a bunch of state-action pairs. For each state $s_i$
+from the buffer, sample a fresh action $\bar{a}_i$ from the current policy (not the
+old stored action). Check how good that fresh action is according to $\hat{Q}$.
+Then nudge the policy parameters in the direction that makes good actions more likely.
+Using a fresh action fixes the ``wrong likelihood'' problem from page 17 --- you are
+now computing log probabilities under the current policy, not some old one.
+The states $s_i$ can still come from the replay buffer; only the actions need to be fresh.
+
+\bigskip
+
+\textbf{Page 21 --- The Final Clean Algorithm}
+
+\medskip
+This is the polished, fixed version of the off-policy actor-critic with a replay buffer.
+
+\medskip
+\textbf{Final 5-step algorithm:}
+\begin{enumerate}
+    \item Collect experience $\{s_i, a_i\}$ from the current policy and add it
+          to the replay buffer.
+    \item Sample a batch $\{s_i, a_i, r_i, s'_i\}$ from the replay buffer.
+    \item Update $\hat{Q}^{\pi}_\phi$ toward targets
+          $y_i = r(s_i, a_i) + \gamma \hat{Q}^{\pi}_\phi(s'_i, a'_i)$,
+          where $a'_i \sim \pi_\theta(\cdot \mid s'_i)$ --- sampled fresh from
+          the current policy.
+    \item Compute the gradient:
+          \[
+              \nabla_\theta J(\theta) \approx \frac{1}{N} \sum_i
+              \nabla_\theta \log \pi_\theta(\bar{a}_i \mid s_i) \,
+              \hat{Q}^{\pi}(s_i, \bar{a}_i)
+          \]
+          where $\bar{a}_i \sim \pi_\theta(\cdot \mid s_i)$ --- freshly sampled
+          from the current policy.
+    \item Update $\theta \leftarrow \theta + \alpha \nabla_\theta J(\theta)$.
+\end{enumerate}
+
+\medskip
+The replay buffer lets the agent learn from every experience it has ever had,
+making training much more data-efficient. The two key fixes --- sampling fresh
+actions for the Q-target and for the gradient --- ensure that even though the
+\textit{data} is old, the \textit{evaluation} always reflects what the current
+policy would do.
+
+\bigskip
+\bigskip
+
+% ─────────────────────────────────────────────
+% Follow-up Questions
+% ─────────────────────────────────────────────
+
+\textbf{What is meant by random sample (minibatch)?}
+
+\medskip
+The replay buffer is like a giant jar full of thousands of past experiences
+(state, action, reward, next-state). Instead of learning from every single one
+of those experiences at once (too slow and memory-heavy), you randomly grab a
+small handful --- say, 64 or 256 --- and learn from just those.
+
+That small random handful is the \textbf{minibatch}.
+
+``Random'' is important here: you do not pick the most recent ones or the best
+ones --- you grab them randomly so the batch is not biased toward any one policy
+or time period. This also breaks correlations between nearby experiences, which
+helps the learning stay stable.
+
+\bigskip
+
+\textbf{Q(s,a) can be computed from any experience. How and why?}
+
+\medskip
+\textbf{First, recall what each one asks:}
+\begin{itemize}
+    \item $V(s)$: ``How good is this state, if I follow my current policy from
+          here?'' --- depends entirely on the policy.
+    \item $Q(s, a)$: ``How good is it to take action $a$ in state $s$, and then
+          follow my current policy from there?'' --- the action is already pinned down.
+\end{itemize}
+
+\medskip
+\textbf{Why $Q$ can use old data:}
+
+The target for $Q$ is:
+\[
+    y = r(s, a) + \gamma \hat{Q}^{\pi}(s', \bar{a}')
+\]
+
+To compute this, you need three things:
+
+\begin{tabular}{p{3cm} p{5cm} p{5cm}}
+\hline
+\textbf{Thing needed} & \textbf{Where it comes from} & \textbf{Policy-dependent?} \\
+\hline
+$r(s, a)$ & Replay buffer (old data) & No --- the environment gave this reward, not the policy \\[4pt]
+$s'$ & Replay buffer (old data) & No --- the environment transitioned to $s'$, not the policy \\[4pt]
+$\bar{a}'$ & Sampled fresh from current policy & Yes --- and you do this fresh \\
+\hline
+\end{tabular}
+
+\medskip
+The reward $r(s, a)$ is a fact about the environment --- it does not matter which
+policy decided to take action $a$. If you step off a cliff in a game, you lose a
+life whether your old policy did it or your new one. The environment always gives
+the same reward for the same $(s, a)$. The next state $s'$ is also determined by
+the environment, not the policy. So the $(s, a, r, s')$ tuple from old experience
+is completely valid. The only policy-sensitive piece --- what action comes next ---
+is handled by sampling $\bar{a}'$ fresh from the current policy at $s'$.
+
+\medskip
+\textbf{Why $V$ cannot use old data:}
+
+$V(s)$ has no action pinned. It averages over whatever actions the policy would
+take. So if your replay buffer has data from 10 different old policies, $V(s)$
+ends up representing some confused blend of all of them --- not your current policy.
+There is no way to ``correct'' for this without knowing exactly which old policy
+produced each experience.
+
+\medskip
+\textbf{In short:} $Q$ separates the policy-independent part ($r$, $s'$) from the
+policy-dependent part ($\bar{a}'$). Old data handles the first part; the current
+policy handles the second. $V$ has no such clean separation.
