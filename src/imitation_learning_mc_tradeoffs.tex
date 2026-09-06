@@ -1,0 +1,20 @@
+\bigskip
+
+\textbf{Page 22 --- Monte Carlo Estimation: Trade-offs}
+
+\subsection*{Page 22 --- Monte Carlo Estimation: Trade-offs}
+
+A short pros/cons pause before moving to a TD-based alternative on the next page.
+
+\begin{center}
+\begin{tabular}{@{}p{0.47\linewidth}p{0.47\linewidth}@{}}
+\toprule
+Advantages & Disadvantages \\
+\midrule
+Simple: just sum up observed rewards, no bootstrapping equations to get wrong. & Monte Carlo estimates are noisy: a single sampled trajectory's return has high variance, especially in stochastic environments or with long horizons. \\
+Avoids ever querying or training on any out-of-distribution action (Page 18's problem never arises), because the target is built purely from rewards that were actually observed. & $\hat A^{\pi_\beta}$ estimates the advantage of the \emph{behavior} policy $\pi_\beta$, not of the (better) policy $\pi_\theta$ we're actually trying to learn --- so we are optimizing against a weaker yardstick than we ultimately want. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The second disadvantage is the direct motivation for the next slide: can we estimate advantages with TD updates (which bootstrap off a Q-function that tracks the \emph{current}, improving policy $\pi_\theta$) instead of Monte Carlo (which is stuck estimating the advantage of the old data-collecting policy $\pi_\beta$)?

@@ -1,0 +1,81 @@
+\bigskip
+
+\textbf{Pages 7, 8 --- Multimodal Action Models: GMMs and Autoregressive Discretization}
+
+\subsection*{Page 7 --- Gaussian Mixture Models (GMMs)}
+
+A GMM is the simplest fix for the ``one Gaussian can't be multimodal'' problem: instead of one bump, let the network output several weighted bumps, so it can place separate probability mass on ``merge left'' and ``stay straight'' at once.
+
+\subsubsection*{Mechanism}
+
+The network takes state $s$ and outputs the parameters of $K$ Gaussian components:
+\[
+\{w_k(s),\, \mu_k(s),\, \Sigma_k(s)\}_{k=1}^K.
+\]
+The probability of an action is the weighted sum of the $K$ component densities:
+\[
+p(a_i \mid s_i) = \sum_{k=1}^{K} w_k(s_i)\, \mathcal{N}\big(a_i \mid \mu_k(s_i), \Sigma_k(s_i)\big).
+\]
+Training maximizes the total log-likelihood of the demonstrated actions, equivalently minimizing the negative log-likelihood:
+\[
+\mathcal{L}(\theta) = -\sum_{i=1}^{N} \log\left[\sum_{k=1}^{K} w_k(s_i)\, \mathcal{N}\big(a_i \mid \mu_k(s_i), \Sigma_k(s_i)\big)\right].
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$K$ & number of Gaussian components (a hyperparameter you choose ahead of time) \\
+$w_k(s)$ & mixture weight of component $k$ in state $s$; all $w_k \ge 0$, $\sum_k w_k = 1$ \\
+$\mu_k(s)$ & mean (center) of component $k$'s Gaussian bump \\
+$\Sigma_k(s)$ & covariance (spread) of component $k$'s Gaussian bump \\
+$\mathcal{N}(a \mid \mu,\Sigma)$ & the Gaussian probability density evaluated at $a$ \\
+$N$ & number of $(s,a)$ training pairs \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Tensor shapes / parameter count.} If the action is $d$-dimensional and each component has a diagonal covariance, the network's output layer must produce $K$ scalars for $w_k$, $K \times d$ numbers for the means, and $K \times d$ numbers for the (diagonal) variances --- a total output vector of size $K(1 + 2d)$ (the weights are typically produced as raw scores and passed through a softmax over $k$ so they sum to one and stay non-negative).
+
+\subsubsection*{Numerical Walkthrough}
+
+Let $K=2$, and suppose for a given state $s$ the network outputs $w_1 = 0.6,\ \mu_1=-2,\ \sigma_1=0.3$ (merge-left component) and $w_2=0.4,\ \mu_2=0,\ \sigma_2=0.3$ (stay-straight component), with 1-D actions. The 1-D Gaussian density is $\mathcal N(a\mid \mu,\sigma^2) = \frac{1}{\sigma\sqrt{2\pi}} e^{-(a-\mu)^2/(2\sigma^2)}$. Evaluate the mixture density at $a = -2$ (an exact merge-left action):
+\[
+\mathcal{N}(-2 \mid -2, 0.3^2) = \frac{1}{0.3\sqrt{2\pi}} e^{0} \approx 1.330, \qquad
+\mathcal{N}(-2 \mid 0, 0.3^2) = \frac{1}{0.3\sqrt{2\pi}} e^{-\frac{4}{0.18}} \approx 1.330 \times e^{-22.2} \approx 0.
+\]
+So $p(a=-2 \mid s) \approx 0.6(1.330) + 0.4(0) = 0.798$ --- almost all the probability mass at $a=-2$ comes from component 1, exactly as intended: a GMM can assign high probability to $-2$ \emph{and} (separately, via component 2) high probability to $0$, something a single Gaussian could never do simultaneously.
+
+\subsection*{Page 8 --- Multimodal Actions via Autoregressive Models (Discretize + Chain Rule)}
+
+When the action itself has several dimensions (e.g., steering \emph{and} acceleration), a GMM over the whole action vector can get unwieldy. The autoregressive trick: predict one dimension at a time, each time conditioning on the dimensions already chosen, using the chain rule of probability so nothing is lost.
+
+\subsubsection*{Mechanism}
+
+For a multidimensional action $a_i = (a_{i,1}, a_{i,2}, \dots, a_{i,D})$, the chain rule of probability lets us write the exact joint distribution as a product of conditionals:
+\[
+p_\theta(a_i \mid s_i) = \prod_{d=1}^{D} p_\theta\big(a_{i,d} \mid s_i,\, a_{i,1:d-1}\big).
+\]
+Training maximizes the likelihood of the demonstrated actions, i.e., minimizes
+\[
+\mathcal{L}(\theta) = -\sum_{i=1}^{N} \sum_{d=1}^{D} \log p_\theta\big(a_{i,d} \mid s_i,\, a_{i,1:d-1}\big).
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$D$ & number of dimensions in the action (e.g., $D=2$: steering, acceleration) \\
+$a_{i,1:d-1}$ & the first $d-1$ action dimensions already chosen, for example $i$ \\
+$p_\theta(a_{i,d}\mid s_i, a_{i,1:d-1})$ & probability of dimension $d$ given the state and prior dimensions \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each per-dimension conditional is typically represented by \emph{discretizing} that one dimension into bins and outputting a categorical distribution over bins (a classification problem), which is why this is called ``discretize + autoregressive.'' This is exact --- the chain rule is an identity, not an approximation --- and the ordering of dimensions is a design choice (a hyperparameter) that does not change how much the model can represent in principle, only how efficiently it does so.
+
+\subsubsection*{Numerical Walkthrough}
+
+Say $D=2$: dimension 1 is steering, discretized into 3 bins $\{\text{left}, \text{straight}, \text{right}\}$, and dimension 2 is acceleration, discretized into 2 bins $\{\text{low}, \text{high}\}$. Suppose the network outputs $p(\text{left})=0.3,\ p(\text{straight})=0.6,\ p(\text{right})=0.1$ for dimension 1. If the sampled/true first action is ``left,'' then dimension 2's distribution is recomputed \emph{conditioned on that}, e.g., $p(\text{high} \mid \text{left}) = 0.8,\ p(\text{low}\mid\text{left}) = 0.2$ (turning left into oncoming traffic requires more acceleration to clear the gap). The joint probability of the pair (left, high) is then $p(\text{left})\times p(\text{high}\mid\text{left}) = 0.3 \times 0.8 = 0.24$ --- a single number obtained by multiplying the two conditionals, exactly as the chain-rule formula specifies. Note this joint probability is different from what it would have been if we (incorrectly) assumed independence using the \emph{unconditional} marginal for acceleration, which is why conditioning on prior dimensions matters whenever the dimensions of the action are correlated (as steering and acceleration are here).

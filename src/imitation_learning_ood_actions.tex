@@ -1,0 +1,88 @@
+\bigskip
+
+\textbf{Pages 17--19 --- Why Not Off-Policy Directly, the OOD Action Problem, and Filtered BC}
+
+\subsection*{Page 17 --- Why Not Just Run an Off-Policy Algorithm Directly?}
+
+Off-policy actor-critic methods like SAC already claim to work from a replay buffer of past data. So why not just point one at a fixed offline dataset and call it a day? This slide sets up the question; the next slide gives the answer.
+
+\subsubsection*{Mechanism}
+
+The standard SAC-style Q-function update:
+\[
+\min_\phi \sum_{(s,a,s')\sim\mathcal{D}} \Big\lVert \hat Q^{\pi_\theta}_\phi(s,a) - \big(r(s,a) + \gamma\,\mathbb{E}_{a'\sim\pi_\theta(\cdot\mid s')}\big[\hat Q^{\pi_\theta}_\phi(s',a')\big]\big)\Big\rVert^2,
+\]
+followed by a policy update using the reparameterized (or likelihood-ratio) policy gradient
+\[
+\nabla_\theta J(\theta) \approx \frac{1}{N}\sum_i \nabla_\theta \log \pi_\theta(a_i^{\pi^\star}\mid s_i)\, \hat Q^{\pi_\theta}_\phi(s_i, a_i^{\pi^\star}), \quad a_i^{\pi^\star}\sim\pi_\theta(a\mid s_i).
+\]
+
+\begin{center}
+\begin{tabular}{@{}p{0.32\linewidth}p{0.6\linewidth}@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$\hat Q^{\pi_\theta}_\phi(s,a)$ & the learned critic's estimate of the value of taking $a$ in $s$ under $\pi_\theta$ \\
+$\gamma$ & discount factor \\
+$a' \sim \pi_\theta(\cdot\mid s')$ & the \emph{current} policy's own action at the next state, used for bootstrapping \\
+$a_i^{\pi^\star}$ & an action freshly sampled from the current policy, used to compute the policy gradient \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The critical detail buried in this formula: both the Q-update's bootstrap target and the policy-gradient step evaluate $\hat Q_\phi$ at an action $a'$ (or $a_i^{\pi^\star}$) sampled from the \emph{current} policy $\pi_\theta$, not necessarily an action that ever appears in the fixed dataset $\mathcal{D}$. When new data keeps arriving (the online setting), any inaccuracy this introduces gets corrected the next time that action is actually tried in the environment. With a \emph{static} dataset from a mediocre policy, that corrective feedback loop is gone --- which is exactly the problem the next page dissects.
+
+\subsection*{Page 18 --- The Out-of-Distribution (OOD) Action Problem}
+
+This is the central reason naive off-policy algorithms fail offline: the critic gets evaluated at actions it was never trained on, its errors there are never corrected by real experience, and those errors get amplified rather than fixed by the Bellman backup.
+
+\subsubsection*{Mechanism}
+
+Consider the same critic loss as Page 17. At a next-state $s'$, the target requires $\mathbb{E}_{a'\sim\pi_\theta(\cdot\mid s')}[\hat Q_\phi^{\pi_\theta}(s',a')]$ --- an average over actions the \emph{current} policy would choose, which may fall well outside the region of actions actually present in $\mathcal{D}$ for that state (the ``data support''). The diagram plots a randomly-initialized $Q(s',a')$ as a function of $a'$: it is a wiggly, essentially arbitrary curve outside the narrow green data-support region, since it was never trained there. If the policy update is free to pick whichever $a'$ maximizes this untrained curve, it will latch onto one of the curve's random-noise peaks lying \emph{outside} the data support --- an action the critic simply has no real information about.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+data support & the range of actions actually observed in $\mathcal{D}$ for a given state \\
+OOD action & an action fed to $Q$ that lies outside that observed range \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This creates a feedback loop with no brake: (1) $Q$ is unreliable (essentially noise) on OOD actions; (2) the policy update seeks out exactly those actions where $Q$ happens to look over-optimistic; (3) the next Bellman backup then treats that already-inflated value as a real target and inflates $Q$ further; (4) each round the learned policy drifts further from the behavior policy, chasing an ever more overestimated (and ever less trustworthy) $Q$-value. This phenomenon is documented in the offline RL literature as \emph{extrapolation error} or the OOD-action overestimation problem, e.g., Fujimoto, Meger \& Precup, \emph{Off-Policy Deep Reinforcement Learning without Exploration} (BCQ, 2019) and Kumar, Zhou, Tucker \& Levine, \emph{Conservative Q-Learning for Offline Reinforcement Learning} (CQL, 2020).
+
+\subsubsection*{Numerical Walkthrough}
+
+Suppose the true (unobservable) values for a state $s'$ are $Q^*(s',a'=1)=5$ (in-support) and $Q^*(s',a'=9)=0$ (far out of support, a bad action). Before training converges, the randomly initialized network might output $\hat Q_\phi(s',1)=4.8$ (close to truth, since $a'=1$ is well covered by data) but $\hat Q_\phi(s',9)=7.0$ (a spurious overestimate, since $a'=9$ was never trained on). A policy update that samples candidate actions and reinforces whichever has higher $\hat Q_\phi$ will push probability mass toward $a'=9$, because $7.0 > 4.8$ --- even though the true value ordering is the exact opposite ($5 > 0$). The next Bellman backup then uses this newly-likely $a'=9$ (with its inflated estimate $7.0$) as part of the bootstrap target for other states, propagating the error outward through the whole value function.
+
+\subsection*{Page 19 --- Offline RL: A Simple Baseline (Filtered Behavior Cloning)}
+
+Before reaching for a full off-policy critic, here is the simplest possible way to use reward labels: throw away the worst trajectories and just imitate what is left.
+
+\subsubsection*{Mechanism}
+
+\begin{enumerate}
+\item Rank whole trajectories by total return: $r(\tau) = \sum_{(s_t,a_t)\in\tau} r(s_t,a_t)$.
+\item Keep only the top-performing slice of the dataset: $\widetilde{\mathcal{D}} : \{\tau \mid r(\tau) > \eta\}$, for some return threshold $\eta$.
+\item Run ordinary behavior cloning (maximum likelihood) on the filtered set: $\max_\theta \sum_{(s,a)\in\widetilde{\mathcal{D}}} \log \pi_\theta(a\mid s)$.
+\end{enumerate}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$r(\tau)$ & total return of one whole trajectory \\
+$\eta$ & the return cutoff; only trajectories scoring above this survive \\
+$\widetilde{\mathcal{D}}$ & the filtered dataset, containing only high-return trajectories \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection*{Numerical Walkthrough}
+
+Suppose $\mathcal D$ has five trajectories with returns $r(\tau) = \{2, 8, -1, 6, 4\}$, and we set $\eta = 5$ (roughly, keep the top 40\%). Then $\widetilde{\mathcal D} = \{\tau : r(\tau) \in \{8, 6\}\}$ --- only the two best trajectories survive, and behavior cloning is run on just their $(s,a)$ pairs, ignoring the rest of the dataset entirely.
+
+\textbf{Limitation.} This baseline never combines partial trajectories the way stitching does (Page 16): it can only ever be as good as the single best \emph{whole} trajectory that happened to be recorded, and it wastes all the reward information contained in the discarded lower-return trajectories (which, per the stitching argument, might still contain a locally-excellent sub-path worth reusing).

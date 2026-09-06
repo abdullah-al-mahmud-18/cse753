@@ -1,0 +1,18 @@
+\bigskip
+
+\textbf{Page 9 --- Autoregressive Models: Sequential Execution}
+
+\subsection*{Page 9 --- Autoregressive Models: Sequential Execution}
+
+This slide is the ``how do you actually run it'' companion to Page 8: the same factorization, but written out as a step-by-step sampling procedure, exactly analogous to how a language model generates a sentence one word at a time.
+
+\subsubsection*{Mechanism}
+
+\[
+\pi_\theta(a \mid s) = \prod_{d=1}^{D} \pi_\theta(a_d \mid s, a_{<d}), \qquad a_{<d} = (a_1,\dots,a_{d-1}).
+\]
+At execution (inference) time, the dimensions are generated one at a time, each sampled from a distribution conditioned on everything sampled so far:
+\[
+a_1 \sim \pi_\theta(a_1 \mid s), \quad a_2 \sim \pi_\theta(a_2 \mid s, a_1), \quad \dots, \quad a_D \sim \pi_\theta(a_D \mid s, a_{1:D-1}).
+\]
+So the complete action is produced by the chain $s \to a_1 \to a_2 \to \cdots \to a_D$: each newly sampled dimension is fed back into the model as input for predicting the next dimension. This is structurally identical to a language model predicting one token, feeding that token back in, and predicting the next token --- the only difference is that ``tokens'' here are action-dimension bins rather than words. Because the factorization is exact, this autoregressive policy loses nothing in principle relative to modeling the full joint $\pi_\theta(a\mid s)$ directly; it only trades a hard joint-probability problem for a sequence of easier one-dimension-at-a-time problems.

@@ -1,0 +1,114 @@
+\section{Imitation Learning}
+
+\bigskip
+
+\textbf{Pages 2--6 --- Imitation Learning: Problem Setup Through Expressive Policies}
+
+\subsection*{Page 2 --- Imitation Learning: Problem Setup}
+
+The core idea: we are given a pile of recorded examples of an expert doing a task well (states paired with the actions the expert took), and we want a policy that acts just as well by copying those examples, without ever being told a reward signal or being told the rules of ``good'' behavior directly.
+
+\subsubsection*{Mechanism}
+
+The data is a set of trajectories
+\[
+\mathcal{D} = \{(s_1, a_1, \dots, s_T)\},
+\]
+where each trajectory is assumed to be a sample from an unknown expert policy $\pi_{\text{expert}}$.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$s_t$ & the state (or observation) at time step $t$ \\
+$a_t$ & the action taken at time step $t$ \\
+$T$ & the length of one demonstrated trajectory \\
+$\mathcal{D}$ & the whole collected dataset of expert trajectories \\
+$\pi_{\text{expert}}$ & the (unknown) rule the expert used to pick actions \\
+$\pi_\theta$ & the policy we are training, with learnable parameters $\theta$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+We never see $\pi_{\text{expert}}$ itself, only its footprints (the $(s,a)$ pairs it left behind). The goal is to fit $\pi_\theta$ so that it performs at roughly the same level as the expert, by mimicking the patterns in $\mathcal{D}$, rather than by being told a reward function. The driving example on the slide makes this concrete: the state is sensor readings from a car, the action is a steering/acceleration command, and the dataset is simply recordings of human drivers.
+
+\subsection*{Page 3 --- Behavioral Cloning (``Imitation Learning --- Version 0'')}
+
+The simplest possible approach: treat this exactly like an ordinary supervised-learning regression problem. For every state in the dataset, make the policy's predicted action match the expert's recorded action as closely as possible.
+
+\subsubsection*{Mechanism}
+
+\[
+\min_\theta \; \frac{1}{|\mathcal{D}|} \sum_{(s,a) \in \mathcal{D}} \lVert a - \hat a \rVert^2, \qquad \hat a = \pi_\theta(s)
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$|\mathcal{D}|$ & the number of $(s,a)$ pairs in the dataset \\
+$a$ & the action the expert actually took in state $s$ \\
+$\hat a$ & the action our deterministic policy predicts for that same $s$ \\
+$\pi_\theta(s)$ & a deterministic function: one state in, one action out \\
+$\lVert \cdot \rVert^2$ & squared Euclidean distance between the two action vectors \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In plain terms: run the state through the network, get a predicted action, measure how far off it was from what the expert did, and nudge the network's weights (via gradient descent) to shrink that distance, averaged over the whole dataset. Once trained, you simply run $\pi_\theta$ in the world --- no further learning. This is behavioral cloning (BC) with a deterministic policy, and it is exactly ordinary $L_2$ regression from states to actions.
+
+\subsection*{Page 4 --- What Can Go Wrong? The Mean-Collapse Problem}
+
+If the expert is not perfectly consistent --- different demonstrators solve the same situation in different, equally valid ways --- $L_2$ regression does not pick one of those ways. It averages them, and the average can be a terrible, even unsafe, action.
+
+\subsubsection*{Mechanism}
+
+Squared-error loss is minimized, for a fixed state $s$, by predicting the \emph{mean} of the conditional action distribution $p(a\mid s)$ in the data. This is a basic fact about squared loss (the same reason the sample mean minimizes sum-of-squared-deviations), not something special to neural networks. So if $p(a\mid s)$ is multimodal --- say, some experts merge left and others stay straight --- $L_2$ regression will output the average of those two very different actions, which is a point that lies \emph{between} the modes and can have almost zero probability under the real data.
+
+\subsubsection*{Numerical Walkthrough}
+
+The slide's demonstration-distribution plot shows two modes of steering command: ``merge left'' centered near $-2.0$ and ``stay straight'' centered near $0$, with staying straight the more common choice. Suppose, concretely, that $75\%$ of the recorded examples are ``stay straight'' ($a \approx 0$) and $25\%$ are ``merge left'' ($a \approx -2$):
+\[
+\mathbb{E}[a \mid s] = 0.75 \times 0 + 0.25 \times (-2) = -0.5.
+\]
+That matches the dashed ``mean of data'' line on the slide, sitting at about $-0.5$ --- roughly halfway between the lane markings, straddling both lanes, which is exactly the unsafe, low-probability action the slide warns about. The lesson: \emph{we need to learn beyond the mean}, i.e., we need the policy to represent a distribution that can put probability mass separately on $-2$ and on $0$, rather than collapsing them into one number.
+
+\subsection*{Page 5 --- Neural Networks as Distribution Parameterizations}
+
+A neural network that outputs a single action vector can only ever be as expressive as whatever distribution class you decided to wrap around it. Making the network bigger does not fix this --- expressive power of the \emph{function} $s \to \text{parameters}$ is a separate question from expressive power of the \emph{distribution class} those parameters define.
+
+\subsubsection*{Mechanism}
+
+Instead of directly outputting an action, the network outputs the parameters of a distribution over actions, $p(a \mid s)$:
+\begin{itemize}
+\item \textbf{1D discrete actions} (e.g., Mario: up, down, press A, press B): the network outputs one probability per action, i.e., a full categorical distribution $p(\text{up}), p(\text{down}), \dots$ This is \emph{maximally expressive} for discrete actions --- there is no distribution over a finite set of options that a categorical cannot represent exactly.
+\item \textbf{Continuous actions} (e.g., steering angle): the simplest choice is a single Gaussian, so the network outputs $\mu(s)$ and $\sigma(s)$. This is \emph{not very expressive} --- a single Gaussian is always unimodal, so it can never represent the two-mode ``merge left / stay straight'' situation from Page 4 no matter how large the network is.
+\end{itemize}
+
+\textbf{Contrast to avoid confusing:} the expressive power of the mapping $s \to (\mu, \sigma)$ (which can be made arbitrarily flexible by using a bigger network) is not the same thing as the expressive power of the Gaussian distribution itself (which is fixed and unimodal regardless of network size). A giant network can learn a very accurate $\mu(s)$, but it still cannot describe two separate peaks with only one Gaussian.
+
+\subsection*{Page 6 --- Imitation Learning --- Version 1: Expressive Policies}
+
+The fix for Page 4's failure mode: instead of regressing to the mean action, train a generative model that assigns high probability to whatever action the expert actually took, using a distribution class expressive enough to have multiple modes.
+
+\subsubsection*{Mechanism}
+
+\[
+\min_\theta \; -\mathbb{E}_{(s,a)\in\mathcal{D}}\big[\log \pi_\theta(a\mid s)\big]
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$\pi_\theta(a\mid s)$ & the probability (density) our policy assigns to action $a$ in state $s$ \\
+$\log \pi_\theta(a\mid s)$ & log-likelihood of the expert's actual action under our policy \\
+$-\mathbb{E}_{(s,a)\in\mathcal{D}}[\cdot]$ & average negative log-likelihood over the dataset \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This is maximum likelihood estimation: we want $\pi_\theta$ to assign as much probability as possible to the actions the expert actually chose, for every $(s,a)$ pair in the dataset. Minimizing the negative log-likelihood is the same optimization as maximizing the likelihood; the sign flip just turns ``maximize'' into a ``minimize'' so it fits the usual gradient-descent machinery. Deployment is unchanged: once trained, just sample actions from $\pi_\theta(\cdot \mid s)$ (or take its mode) and run the policy.

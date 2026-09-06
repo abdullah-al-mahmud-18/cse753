@@ -1,0 +1,35 @@
+\bigskip
+
+\textbf{Page 26 --- Implicit Q-Learning (IQL)}
+
+\subsection*{Page 26 --- Implicit Q-Learning (IQL)}
+
+This slide assembles the full offline algorithm that achieves Page 24's goal: an optimistic, in-support value estimate, obtained entirely from TD updates, without ever plugging an out-of-distribution action into $Q$ or $V$.
+
+\subsubsection*{Mechanism}
+
+\textbf{Step 1 --- fit $\hat V(s)$ with the expectile loss}, comparing it only to $Q$-values of actions actually in the dataset:
+\[
+\hat V(s) \leftarrow \arg\min_V\; \mathbb{E}_{(s,a)\sim\mathcal{D}}\Big[\ell_2^\lambda\big(V(s) - \hat Q(s,a)\big)\Big], \quad \text{using small } \lambda < 0.5.
+\]
+\textbf{Step 2 --- update $Q$ with an ordinary MSE / TD loss}, but bootstrapping off $\hat V(s')$ (a function of the \emph{state} $s'$ only) rather than off $Q(s',a')$ evaluated at some sampled next action:
+\[
+\hat Q(s,a) \leftarrow \arg\min_Q\; \mathbb{E}_{(s,a,s')\sim\mathcal{D}}\Big[\big(Q(s,a) - (r + \gamma\hat V(s'))\big)^2\Big].
+\]
+\textbf{Step 3 --- extract a policy with AWR}, exactly as on Page 21/23:
+\[
+\hat\pi \leftarrow \arg\max_\pi\; \mathbb{E}_{s,a\sim\mathcal{D}}\left[\log\pi(a\mid s)\, \exp\!\left(\frac{1}{\alpha}\big(\hat Q(s,a) - \hat V(s)\big)\right)\right].
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$\hat V(s)$ & a state-only value function, trained to be an optimistic, in-support estimate \\
+$\hat Q(s,a)$ & the Q-function, trained with ordinary TD regression, bootstrapping through $\hat V$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Why this closes the OOD loophole for good.} Compare this directly with AWAC (Page 23), whose one remaining weakness was that its $Q$-update needed $a'\sim\pi_\theta(\cdot\mid s')$ (an action sampled from the current policy, potentially outside the data). Here, Step 2's target is $r+\gamma\hat V(s')$ --- and because $\hat V$ takes only a \emph{state} as input, computing it never requires sampling or specifying \emph{any} action at $s'$ at all. Step 1, meanwhile, only ever evaluates $\hat Q(s,a)$ at pairs $(s,a)$ literally drawn from $\mathcal{D}$. So across the whole algorithm, $Q$ is never queried at an action it wasn't trained on, and the ``implicit'' in the name refers to exactly this trick: the effect of a max over actions (needed, informally, to be optimistic) is achieved \emph{implicitly} through the asymmetric expectile loss on in-support data, rather than through an explicit $\max_a$ or a sampled $a'\sim\pi_\theta$.

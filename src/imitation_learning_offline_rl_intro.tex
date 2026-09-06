@@ -1,0 +1,62 @@
+\bigskip
+
+\textbf{Pages 14--16 --- Why Offline RL, Formal Setup, and Trajectory Stitching}
+
+\subsection*{Page 14 --- Why Offline RL?}
+
+Having just seen that online correction (DAgger) fixes compounding error but requires an expert available live, this slide sets up the alternative: what if we instead squeeze more out of a \emph{fixed}, already-collected dataset, using reward labels instead of (or in addition to) an expert?
+
+\subsubsection*{Mechanism}
+
+\begin{center}
+\begin{tabular}{@{}p{0.46\linewidth}p{0.46\linewidth}@{}}
+\toprule
+Online RL process & Offline RL process \\
+\midrule
+Collect data & Given a static dataset \\
+Update policy on the latest data (or all data so far) & Train the policy on the provided dataset only \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Why offline RL can be attractive: it lets you reuse datasets already collected by people or by existing systems (previous experiments, robots, institutions) instead of paying to recollect; it avoids the risk of running an undertrained policy in the world to gather more data (unsafe in, e.g., medical or driving domains); and it doesn't require writing down a reward function during data collection, only afterward for training. A common hybrid is offline pretraining followed by online fine-tuning, combining a safe, cheap starting point with a smaller, safer amount of live interaction.
+
+\subsection*{Page 15 --- Offline RL: Formal Setup}
+
+This section restates the RL objective (maximize expected return) but makes the data-generating process explicit: the dataset now comes from an unknown, possibly suboptimal, possibly mixed \emph{behavior policy}, and unlike imitation learning, we assume we also have reward labels $r$ attached to every transition.
+
+\subsubsection*{Mechanism}
+
+\[
+\mathcal{D} : \{(s,a,s',r)\} \sim \pi_\beta, \qquad
+p_{\pi_\beta}(\tau) = p(s_1)\prod_{t=1}^{T} \pi_\beta(a_t\mid s_t)\, p(s_{t+1}\mid s_t,a_t),
+\]
+\[
+\max_\theta\; \mathbb{E}_{p_{\pi_\theta}}\left[\sum_t r(s_t,a_t)\right].
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$\pi_\beta$ & the (unknown) \emph{behavior policy} that generated the dataset \\
+$p_{\pi_\beta}(\tau)$ & the probability of an entire trajectory $\tau$ under $\pi_\beta$ and the environment dynamics \\
+$p(s_1)$ & the distribution of starting states \\
+$p(s_{t+1}\mid s_t,a_t)$ & the environment's (unknown, fixed) transition dynamics \\
+$r(s_t,a_t)$ & the reward received for taking action $a_t$ in state $s_t$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two things are new relative to imitation learning: (1) we now have reward labels $r$, so ``good'' is defined numerically rather than purely by what the expert happened to do, and (2) $\pi_\beta$ is explicitly allowed to be a \emph{mixture} of policies (data from many different sources, of many different skill levels) rather than one consistent expert. The objective itself --- maximize expected return under the policy we're learning, $\pi_\theta$ --- is the same objective as ordinary (online) RL; what changes is that we are only allowed to use $\mathcal{D}$, never new rollouts, to solve it.
+
+\subsection*{Page 16 --- Offline RL versus Imitation Learning: Trajectory Stitching}
+
+Even with reward labels available, why bother with RL machinery instead of just imitating the whole dataset? Because a dataset can contain \emph{no single trajectory} that is good all the way through, while still containing all the pieces needed to construct one.
+
+\subsubsection*{Mechanism}
+
+The diagram shows two overlapping recorded trajectories that pass through a shared state. One continuation from that shared state reaches a rewarding state $s_9$ (with $r(s_9)=+1$); a different continuation from the very same shared state instead wanders to a less useful state $s_6$ (with $r(s_6)=-1$). Neither full recorded trajectory, taken as a whole, is uniformly good --- but the \emph{first half} of one trajectory (getting to the shared state) combined with the \emph{second half} of the other (continuing on to $s_9$) would be. Behavior cloning can only ever reproduce a trajectory it saw; it has no mechanism for splicing together the good part of one trajectory with the good part of another. Offline RL, by contrast, learns state-indexed values (via Bellman backups) rather than whole-trajectory imitation: at the shared state, whichever continuation has higher backed-up value gets favored regardless of which original trajectory it came from, effectively \textbf{stitching} the good first half to the good second half into a policy better than either recorded trajectory alone.
+
+\textbf{Reference expansion.} This ``stitching'' property of value-based (Bellman-backup) methods versus trajectory-imitation methods is discussed explicitly in Levine, Kumar, Tucker \& Fu, \emph{Offline Reinforcement Learning: Tutorial, Review, and Perspectives on Open Problems} (arXiv:2005.01643, 2020): imitation-style methods are fundamentally limited by the return of the single best trajectory (or best sub-population) actually present in the data, whereas dynamic-programming-style offline RL methods can in principle exceed any individual trajectory's return by recombining sub-trajectories through the state-value function. The bracketed questions on the slide point at this directly: a policy learned with vanilla imitation would just reproduce whichever recorded path it was shown (never reaching $s_9$ if that specific full path was never demonstrated), while a correctly-learned RL policy should be able to reach $s_9$ by stitching; whether \textbf{TD} or \textbf{Monte Carlo} value estimation is used matters here because MC value estimates are tied to the return of the specific trajectory they were sampled from, while TD backups propagate value \emph{state-by-state} and are exactly the mechanism that makes cross-trajectory stitching possible.

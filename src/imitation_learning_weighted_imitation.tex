@@ -1,0 +1,33 @@
+\bigskip
+
+\textbf{Page 20 --- Weighted Imitation Learning}
+
+\subsection*{Page 20 --- Weighted Imitation Learning}
+
+Instead of a hard cutoff (keep this trajectory / discard that one), why not softly weight \emph{every single transition} by how good that specific action was, using a continuous score rather than a whole-trajectory return?
+
+\subsubsection*{Mechanism}
+
+The natural per-transition ``how good was this action'' score is the advantage function, recalled from earlier in the course:
+\[
+A^\pi(s,a) = Q^\pi(s,a) - V^\pi(s).
+\]
+Weighted imitation then reweights the log-likelihood objective by (an increasing function of) this advantage:
+\[
+\theta \leftarrow \arg\max_\theta\; \mathbb{E}_{s,a\sim\mathcal{D}}\big[\log \pi_\theta(a\mid s)\, \exp(A(s,a))\big].
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$Q^\pi(s,a)$ & expected return of taking $a$ in $s$, then following $\pi$ thereafter \\
+$V^\pi(s)$ & expected return of state $s$, averaged over $\pi$'s own action choices \\
+$A^\pi(s,a)$ & how much better (or worse) $a$ is than $\pi$'s ``typical'' action in $s$ \\
+$\exp(A(s,a))$ & converts the advantage into a positive weight $> 0$ for that $(s,a)$ pair \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Because $\exp(\cdot)$ is always positive and increasing, actions with a large positive advantage get an outsized weight in the log-likelihood sum, while actions with negative advantage get down-weighted toward (but never fully to) zero --- so the policy is pulled toward reproducing the \emph{better-than-typical} actions in the dataset and away from reproducing the worse ones, rather than treating every recorded action as equally worth imitating. This directly connects to Page 16's stitching diagram: at the shared state, the branch of the graph that leads toward the rewarding state $s_9$ gets a large positive advantage (and hence a large weight, shown as the bold arrow in the ``Adv.\ weights for $s_3$'' box), while the branch leading to the low-reward state $s_6$ gets a small or negative advantage (thin arrow) --- so advantage weighting is precisely the mechanism that accomplishes the ``stitching'' described qualitatively on Page 16.

@@ -1,0 +1,53 @@
+\bigskip
+
+\textbf{Page 11 --- ``Diffusion Policy'' (Flow-Matching Formulation)}
+
+\subsection*{Page 11 --- ``Diffusion Policy'' (Flow-Matching Formulation)}
+
+\textbf{Flag/caveat.} The slide labels this section ``Diffusion Policy,'' but the exact training and inference recipe shown --- linear interpolation between noise and data, and regressing a velocity field onto $(x_1-x_0)$ --- is the \emph{flow matching} / rectified-flow formulation (Lipman et al., \emph{Flow Matching for Generative Modeling}, 2022), not the original Diffusion Policy paper's recipe. The original Diffusion Policy (Chi et al., RSS 2023, arXiv:2303.04137) uses a DDPM-style noise-prediction objective with many discrete noise levels $x^k = \sqrt{\bar\alpha_k}\, x^0 + \sqrt{1-\bar\alpha_k}\,\epsilon$ and trains a network to predict the injected noise $\epsilon$. Flow matching instead uses a straight-line path between a noise sample and a data sample and regresses directly onto a constant velocity along that line. Both are ``generate an action by transforming noise'' methods and both are used under the umbrella term ``diffusion policy'' in the robotics literature, but they are different training objectives; several recent large-scale robot policies (e.g., Physical Intelligence's $\pi_0$) use exactly the flow-matching recipe shown on this slide rather than the original DDPM recipe.
+
+\subsubsection*{Mechanism}
+
+\textbf{Training}
+\begin{enumerate}
+\item Sample a real action $x_1 \sim \mathcal{D}$ and a noise sample $x_0 \sim \mathcal{N}(0,1)$.
+\item Sample a time $t \sim p(t)$, $t\in[0,1]$.
+\item Linearly interpolate: $x_t = t x_1 + (1-t)x_0$.
+\item Minimize $\lVert v_\theta(x_t, t) - (x_1 - x_0)\rVert^2$.
+\end{enumerate}
+\textbf{Inference}
+\begin{enumerate}
+\item Sample noise $x_0 \sim \mathcal{N}(0,1)$.
+\item For $t \in \{0,\delta,2\delta,\dots,1-\delta\}$: $x_{t+\delta} = x_t + v_\theta(x_t,t)\,\delta$ (an Euler step).
+\item Return $x_1$.
+\end{enumerate}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$x_1$ & a real action sampled from the demonstration data \\
+$x_0$ & a sample of pure Gaussian noise, same shape as an action \\
+$t$ & interpolation time, $0$ = pure noise, $1$ = real data \\
+$x_t$ & the point on the straight line between $x_0$ and $x_1$ at time $t$ \\
+$v_\theta(x_t,t)$ & the network's guess of the velocity (direction and speed) at $x_t$ \\
+$\delta$ & the step size used to numerically integrate the ODE at inference \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The key insight: along a straight-line path from $x_0$ to $x_1$, the true instantaneous velocity is simply the constant vector $x_1 - x_0$ (the displacement, since position moves at a constant rate along a straight line). So training just means: pick a random point along the line, and teach the network to predict which straight line (i.e., which endpoint pair) that point came from, using only its slope. At inference we don't know $x_1$, so we start from noise $x_0$ and repeatedly ask the network ``which direction should I move,'' taking small steps --- this numerically solves the differential equation $dx/dt = v_\theta(x,t)$ forward from $t=0$ to $t=1$. For imitation learning, the whole process is additionally conditioned on the state $s_t$ (i.e., $v_\theta(x_t,t,s_t)$), so different states can produce different denoising paths and hence different, possibly multimodal, action outputs.
+
+\subsubsection*{Numerical Walkthrough}
+
+Let the action be 1-D. Suppose $x_1 = 2$ (expert action) and $x_0 = -1$ (a sampled noise value), and we train at $t=0.3$:
+\[
+x_t = 0.3(2) + 0.7(-1) = 0.6 - 0.7 = -0.1, \qquad \text{target velocity} = x_1 - x_0 = 2-(-1) = 3.
+\]
+So the single training example teaches the network: ``if you see the point $-0.1$ at time $0.3$, the correct velocity to output is $3$.'' At inference, starting from $x_0=-1$ with, say, two Euler steps of size $\delta=0.5$, and supposing the trained network (approximately) outputs the constant velocity $3$ at every point on this path:
+\[
+x_{0.5} = x_0 + v_\theta(x_0,0)\cdot 0.5 = -1 + 3(0.5) = 0.5, \qquad
+x_{1} = x_{0.5} + v_\theta(x_{0.5},0.5)\cdot 0.5 = 0.5 + 3(0.5) = 2.0,
+\]
+recovering $x_1=2$ exactly, because the path really is a straight line with constant velocity $3$ in this simplified illustration (with a real trained network the velocity estimate is only approximate, and using more, smaller steps reduces the resulting numerical error).

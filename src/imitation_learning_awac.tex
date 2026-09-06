@@ -1,0 +1,37 @@
+\bigskip
+
+\textbf{Page 23 --- Advantage-Weighted Actor-Critic (AWAC)}
+
+\subsection*{Page 23 --- Advantage-Weighted Actor-Critic (AWAC)}
+
+AWAC replaces AWR's noisy, $\pi_\beta$-locked Monte Carlo advantage with a TD-estimated advantage that tracks the current policy $\pi_\theta$ --- while trying to keep AWR's key safety property (never training the \emph{policy} on out-of-distribution actions). Source: Nair, Gupta, Dalal \& Levine, \emph{AWAC: Accelerating Online Reinforcement Learning with Offline Datasets} (arXiv:2006.09359, 2020).
+
+\subsubsection*{Mechanism}
+
+\textbf{Step 1 --- estimate a Q-function} with a standard TD target:
+\[
+\min_\phi\; \mathbb{E}_{(s,a,r,s')\sim\mathcal{D}}\left[\Big(\hat Q^{\pi_\theta}_\phi(s,a) - \big(r + \gamma\,\mathbb{E}_{a'\sim\pi_\theta(\cdot\mid s')}[\hat Q^{\pi_\theta}_\phi(s',a')]\big)\Big)^2\right], \quad \text{alternative: } a' \sim \mathcal{D}.
+\]
+\textbf{Step 2 --- update the policy with AWR}, using this TD-based advantage instead of a Monte Carlo one:
+\[
+\theta \leftarrow \arg\max_\theta\; \mathbb{E}_{s,a\sim\mathcal{D}}\big[\log\pi_\theta(a\mid s)\,\exp(\hat A^{\pi_\theta}(s,a))\big], \qquad
+\hat A^{\pi_\theta}(s,a) = \hat Q^{\pi_\theta}_\phi(s,a) - \mathbb{E}_{\bar a\sim\pi_\theta(\cdot\mid s)}\big[\hat Q^{\pi_\theta}_\phi(s,\bar a)\big].
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$\hat A^{\pi_\theta}(s,a)$ & advantage estimated from the learned $Q$, using the \emph{current} policy $\pi_\theta$ as the baseline \\
+$\bar a$ & a fresh action sampled from $\pi_\theta(\cdot\mid s)$, used only to compute the baseline $\mathbb E[\hat Q(s,\bar a)]$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Contrast to avoid confusing: which step actually queries OOD actions?} There are \emph{two} places an action from $\pi_\theta$ could be plugged into $\hat Q_\phi$, and they behave very differently:
+\begin{itemize}
+\item Step 2's baseline, $\mathbb{E}_{\bar a\sim\pi_\theta(\cdot\mid s)}[\hat Q_\phi(s,\bar a)]$, is subtracted off inside the advantage, but the policy's log-likelihood term $\log\pi_\theta(a\mid s)$ in that same objective is always evaluated at an action $a$ \emph{taken from the dataset} $\mathcal D$ --- so the policy itself is never directly trained to increase probability on a self-sampled, possibly OOD action. This is the ``$+$'' marked on the slide: ``still only trains policy on actions in the dataset.''
+\item Step 1's TD target, however, does bootstrap through $\hat Q_\phi(s',a')$ with $a'\sim\pi_\theta(\cdot\mid s')$ --- exactly the OOD query pattern flagged as dangerous on Page 18. This is the ``$-$'' marked on the slide: ``queries on OOD actions.'' The slide notes an alternative that avoids even this: sample $a' \sim \mathcal D$ instead (i.e., use the actually-recorded next action, a SARSA-style target), fully sidestepping any OOD query in the critic as well.
+\end{itemize}
+The ``$+$'' relative to plain AWR is that $\hat Q^{\pi_\theta}_\phi$ tracks the value of the policy we are currently improving, $\pi_\theta$, rather than being frozen at the value of the old data-collecting policy $\pi_\beta$ the way AWR's Monte Carlo advantage was (Page 22's second disadvantage) --- so AWAC gets a better-targeted advantage signal, at the cost of reintroducing a (milder, critic-only) version of the OOD problem.

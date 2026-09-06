@@ -1,0 +1,37 @@
+\bigskip
+
+\textbf{Page 10 --- Decision Transformer}
+
+\subsection*{Page 10 --- Decision Transformer}
+
+The slide is very terse here (just a diagram and a citation), so this section leans on the original paper, Chen et al., \emph{Decision Transformer: Reinforcement Learning via Sequence Modeling}, NeurIPS 2021 (arXiv:2106.01345), Sections 2--3.
+
+\subsubsection*{Core Idea}
+
+Instead of fitting a value function or computing policy gradients, treat control as a sequence-modeling problem: feed a causally-masked (GPT-style) transformer a sequence of \emph{(return-to-go, state, action)} triples and train it to predict the next action, the same way a language model predicts the next word.
+
+\subsubsection*{Mechanism}
+
+\begin{itemize}
+\item \textbf{Return-to-go} $\hat R_t = \sum_{t'=t}^{T} r_{t'}$: the sum of \emph{future} rewards from time $t$ onward. This is fed in as an explicit input token, not just used as a training label.
+\item \textbf{Tokenization.} At each timestep $t$, three raw inputs --- $\hat R_t$, $s_t$, $a_t$ --- are each passed through their own modality-specific linear embedding layer (one small learned matrix per modality) to become vectors of the same width $d_{\text{model}}$, and a learned positional (timestep) encoding is added to each.
+\item \textbf{Sequence.} These embedded tokens are concatenated in order $(\hat R_1, s_1, a_1, \hat R_2, s_2, a_2, \dots)$, so a trajectory of length $T$ becomes a sequence of $3T$ tokens.
+\item \textbf{Causal transformer.} The sequence is passed through a GPT-style transformer with a causal attention mask, meaning each token can only attend to itself and earlier tokens, never later ones --- this is what makes autoregressive generation well-defined.
+\item \textbf{Linear decoder.} At the position of each state token, a linear head reads the transformer's output and predicts the corresponding action.
+\end{itemize}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$\hat R_t$ & return-to-go at time $t$: total reward the trajectory earns from $t$ onward \\
+$d_{\text{model}}$ & width of the embedding vectors fed to the transformer \\
+causal mask & attention pattern that blocks a token from seeing future tokens \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Tensor shapes (toy example).} Suppose $d_{\text{model}}=4$ and a trajectory has $T=3$ timesteps. Each of the three modalities (return, state, action) gets its own embedding matrix mapping its raw dimensionality into $\mathbb{R}^4$; after embedding, every token is a length-4 vector, and the full input to the transformer is a sequence of $3T = 9$ such vectors, i.e., a $9\times 4$ matrix (plus positional encodings of the same shape, added elementwise). The linear decoder is a single $4 \times |\mathcal{A}|$ (or $4\times d_a$ for continuous actions) weight matrix applied at each state-token position.
+
+\textbf{Why this matters at test time:} because return-to-go is an explicit \emph{input}, you can condition generation on a high desired return (e.g., ``pretend the rest of this trajectory will earn +100'') and the model, having learned the correlation between stated return-to-go and the actions that achieve it, outputs actions consistent with a high-performing trajectory --- effectively turning a hindsight-labeled offline dataset into a controllable, prompt-able policy, entirely through supervised sequence prediction rather than Bellman backups.

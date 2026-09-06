@@ -1,0 +1,44 @@
+\bigskip
+
+\textbf{Page 25 --- Expectile Regression}
+
+\subsection*{Page 25 --- Expectile Regression}
+
+Ordinary least-squares gives you the mean of a distribution because it penalizes positive and negative errors identically. Expectile regression breaks that symmetry, so the minimizer shifts away from the mean toward a chosen upper (or lower) percentile-like statistic --- the ``expectile.''
+
+\subsubsection*{Mechanism}
+
+\[
+\ell_2^\lambda(x) = \begin{cases} (1-\lambda)x^2, & x < 0, \\ \lambda x^2, & \text{otherwise.} \end{cases}
+\]
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$x$ & the residual (predicted value minus target, or vice versa, depending on context) \\
+$\lambda$ & the asymmetry parameter, $\lambda\in(0,1)$, controlling which side is penalized more \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+When $\lambda=0.5$, both branches have weight $0.5$ and this is exactly ordinary $\ell_2$ loss, whose minimizer is the mean. When $\lambda \ne 0.5$, one side of the residual is penalized more heavily than the other, so the loss is minimized not at the mean but at a value shifted toward whichever side is penalized \emph{less} (since the fit ``gives way'' more easily on the cheap side and resists more on the expensive side). The plot on the slide shows this directly: for $\lambda=0.01$ the loss curve is nearly flat for $x<0$ and steep for $x>0$, and for $\lambda=0.99$ it's the mirror image.
+
+\subsubsection*{Numerical Verification}
+
+Take a toy distribution of $Q(s,a)$ values over four in-support actions, each equally likely: $\{2,4,6,8\}$ (true mean $=5$). Define the residual as in the next slide's convention, $x = V(s) - Q(s,a)$, and numerically minimize $\mathbb{E}[\ell_2^\lambda(x)]$ over candidate values of $V(s)$ (grid search):
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+$\lambda$ & minimizing $V(s)$ \\
+\midrule
+$0.01$ & $7.88$ (close to the max, $8$) \\
+$0.10$ & $7.00$ \\
+$0.50$ & $5.00$ (exactly the mean) \\
+$0.90$ & $3.00$ \\
+$0.99$ & $2.12$ (close to the min, $2$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+This confirms, with actual numbers, that \emph{small} $\lambda$ pushes $V(s)$ toward the \emph{maximum} of the in-support $Q$-distribution, and $\lambda=0.5$ exactly reproduces the ordinary mean. This is the reverse of the residual convention used in most published expectile-regression write-ups (which define the residual as target-minus-prediction, $Q-V$, so that a large parameter close to $1$ gives the high expectile) --- but because this slide's loss uses the residual $V(s)-Q(s,a)$ (predicted minus target, the opposite sign), the direction flips, and it is \emph{small} $\lambda$ that yields the high, near-maximum expectile. This is exactly why Page 26 specifies ``using small $\lambda<0.5$'' to make $\hat V(s)$ approximate the best in-support action's value, matching the goal illustrated by Page 24's histogram.

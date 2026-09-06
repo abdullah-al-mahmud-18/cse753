@@ -1,0 +1,36 @@
+\bigskip
+
+\textbf{Page 21 --- Advantage-Weighted Regression (AWR)}
+
+\subsection*{Page 21 --- Advantage-Weighted Regression (AWR)}
+
+This slide fills in \emph{how} to actually get $V(s)$ and how to keep the exponential weight from Page 20 numerically well-behaved, turning the idea into a full, runnable algorithm. Source: Peng, Kumar, Zhang \& Levine, \emph{Advantage-Weighted Regression: Simple and Scalable Off-Policy Reinforcement Learning} (arXiv:1910.00177, 2019), as linked directly on the slide.
+
+\subsubsection*{Mechanism}
+
+\textbf{Step 1 --- fit a value function} by Monte Carlo regression onto the empirical (observed) return-to-go:
+\[
+\min_\phi \sum_{s_t\sim\mathcal{D}} \Big\lVert \hat V^{\pi_\beta}_\phi(s_t) - \sum_{t'=t}^{T} r(s_{t'},a_{t'})\Big\rVert^2.
+\]
+\textbf{Step 2 --- train the policy} with an advantage-weighted log-likelihood, using a temperature $\alpha$ inside the exponent:
+\[
+\max_\theta\; \mathbb{E}_{(s_t,a_t)\sim\mathcal{D}}\left[\log \pi_\theta(a_t\mid s_t)\, \exp\!\left(\frac{1}{\alpha}\Big(\sum_{t'=t}^{T} r(s_{t'},a_{t'}) - \hat V^{\pi_\beta}_\phi(s_t)\Big)\right)\right].
+\]
+
+\begin{center}
+\begin{tabular}{@{}p{0.4\linewidth}p{0.52\linewidth}@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$\hat V^{\pi_\beta}_\phi(s_t)$ & the fitted value function, an estimate of how good $s_t$ is under the \emph{behavior} policy $\pi_\beta$ \\
+$\sum_{t'=t}^T r(s_{t'},a_{t'})$ & the empirical (Monte Carlo) return-to-go actually observed after $s_t$ in the data \\
+$\alpha$ & a temperature hyperparameter dividing the advantage before exponentiating \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The quantity inside the exponent, $\sum_{t'=t}^T r(s_{t'},a_{t'}) - \hat V^{\pi_\beta}_\phi(s_t)$, is exactly a Monte Carlo estimate of the advantage $A^{\pi_\beta}(s_t,a_t)$ from Page 20 (observed return minus the value baseline). $\alpha$ exists purely for numerical stability: because $\exp(\cdot)$ grows extremely fast, dividing the advantage by $\alpha$ before exponentiating keeps the weights from blowing up to numbers too large for stable gradient updates --- a larger $\alpha$ flattens (softens) the weighting, a smaller $\alpha$ sharpens it toward favoring only the very best actions.
+
+\textbf{Note on the slide's return formula.} The formula on the slide sums undiscounted rewards $\sum_{t'=t}^T r(s_{t'},a_{t'})$; the original AWR paper's more general presentation uses a discounted return, $\sum_{t'=t}^T \gamma^{t'-t} r(s_{t'},a_{t'})$. The undiscounted version shown here is simply the finite-horizon (episodic) special case with $\gamma=1$ and is not a mistake, just a simplification worth being aware of.
+
+\textbf{Answering the slide's question} (``what do you learn for deterministic $\pi_\beta$?''): if the behavior policy was in fact deterministic, then for every state $s_t$ actually visited in the data there is exactly one recorded action, so the fitted $\hat V^{\pi_\beta}_\phi(s_t)$ and the single observed return-to-go tend to coincide, driving the advantage estimate toward zero for every recorded transition (weight $\exp(0/\alpha)=1$ for all of them) --- AWR then degenerates toward plain behavior cloning, since there is no variation in behavior at a given state to reward-weight between.

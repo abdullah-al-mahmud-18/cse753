@@ -1,0 +1,11 @@
+\bigskip
+
+\textbf{Page 24 --- Motivating Expectile Regression}
+
+\subsection*{Page 24 --- Motivating Expectile Regression}
+
+Both AWR and AWAC still bootstrap through the policy's own action distribution somewhere. Can we get a TD-style value estimate that is optimistic (biased toward the best available action) \emph{without ever evaluating $Q$ at an action outside the dataset at all}?
+
+\subsubsection*{Mechanism}
+
+The slide's histogram plots $\mathbb{E}_{a\sim\pi_\beta(\cdot\mid s)}[Q(s,a)]$ across the range of actions actually taken by the behavior policy at state $s$ (the data support). An ordinary squared-error ($\ell_2$) fit of $V(s)$ to this distribution recovers its \emph{mean} --- the average value of a typical behavior-policy action, marked by the left dashed line. But what we actually want for $V(s)$ is closer to the value of the \emph{best} action still contained within the data support (the right dashed line, further right / higher) --- an optimistic-but-in-support estimate, without ever having to plug in an action outside that histogram (which is exactly the OOD danger from Page 18). The question posed is whether a different loss function than plain $\ell_2$ can shift the fitted value from ``the mean'' toward ``a high percentile'' of this same in-support distribution.

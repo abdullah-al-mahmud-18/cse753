@@ -1,0 +1,51 @@
+\bigskip
+
+\textbf{Pages 12, 13 --- Compounding Errors and DAgger}
+
+\subsection*{Page 12 --- Problems with Imitation Learning: Compounding Errors}
+
+Ordinary supervised learning assumes the inputs you're tested on come from the same fixed distribution as your training inputs. Imitation learning breaks this assumption: the policy's own actions determine which states it visits next, so a small mistake changes the input distribution the policy will face going forward.
+
+\subsubsection*{Mechanism}
+
+The diagram shows a demonstrated trajectory $s_1 \to s_2 \to s_3 \to s_4$ (teal dots) versus what happens when the learned policy makes small errors $\hat a_1, \hat a_2, \hat a_3$ at each step: the very first small error nudges the policy to a state slightly off the demonstrated path; because that off-path state was underrepresented (or absent) in the training data, the policy is now \emph{more} likely to err there too, nudging it even further off; the error keeps growing. This is called \textbf{compounding error}, and the resulting phenomenon --- the states visited by the learned policy $p_\pi(s)$ differing from the states visited by the expert $p^*(s)$ --- is called \textbf{covariate shift}.
+
+\textbf{Reference expansion (class transcript, imitation\_learning.md, ``Compounding Errors'' section):} the transcript frames this precisely as a break from the i.i.d.\ assumption of supervised learning --- ``the inputs to the model are completely independent from the predictions the model makes'' in ordinary supervised learning, but ``this all changes in imitation learning'' because actions drive state transitions. It also notes that even a policy that fits the training distribution \emph{perfectly} can still drift once it makes any small mistake, because perfect in-distribution accuracy says nothing about what happens once you leave the distribution.
+
+\subsubsection*{Numerical Illustration of Why This Compounds}
+
+Suppose the policy has a small per-step probability $\epsilon = 0.05$ of making an error large enough to leave the expert's state distribution, and once off-distribution it behaves essentially arbitrarily for the rest of a horizon of $T=50$ steps. The chance of surviving all $50$ steps without a single such error is
+\[
+(1-\epsilon)^T = (0.95)^{50} \approx 0.077,
+\]
+i.e., only about a $7.7\%$ chance of never drifting off. Ross and Bagnell formalized this precisely: for behavioral cloning with per-state error probability $\epsilon$ under the expert's own state distribution, the gap between the expert's total reward and the learned policy's total reward can grow \emph{quadratically} in the horizon, $J(\pi^*) - J(\pi) = O(\epsilon T^2)$ (Ross \& Bagnell, \emph{Efficient Reductions for Imitation Learning}, 2010). This quadratic-in-$T$ growth is exactly the mathematical signature of compounding error, and it is what the corrective-data methods on the next page are designed to fix.
+
+\subsection*{Page 13 --- DAgger: Dataset Aggregation}
+
+If compounding error comes from the policy visiting states the expert never demonstrated, the natural fix is to get expert labels \emph{at the states the policy actually visits} --- not just the states the expert originally happened to visit.
+
+\subsubsection*{Mechanism}
+
+\begin{enumerate}
+\item Roll out the current learned policy $\pi_\theta$ to get a trajectory $s_1', a_1', \dots, s_T'$.
+\item Query the expert for what it would have done at each visited state: $a^* \sim \pi_{\text{expert}}(\cdot \mid s')$.
+\item Aggregate these corrections into the dataset: $\mathcal{D} \leftarrow \mathcal{D} \cup \{(s', a^*)\}$.
+\item Update (retrain or fine-tune) the policy: $\min_\theta \mathcal{L}(\pi_\theta, \mathcal{D})$.
+\end{enumerate}
+Repeat this loop: each round, the growing dataset $\mathcal D$ increasingly covers the states the \emph{current} policy tends to visit (including its own mistakes), not just the states the original expert happened to visit.
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & What it means \\
+\midrule
+$s'$ & a state visited by the current learned policy's rollout (possibly off-distribution) \\
+$a^*$ & the expert's action, specifically queried at that visited state $s'$ \\
+$\pi_{\text{expert}}(\cdot\mid s')$ & the expert consulted live, not just replayed from old logs \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Reference expansion (class transcript).} The transcript notes a practical variant of step 2: instead of asking the expert to name the exact action for a given visited state (which can be very hard, e.g., ``what steering command exactly?''), you can instead let the expert take full manual control once a mistake is noticed, and log that partial demonstration --- this sidesteps having to introspect an exact corrective action. The transcript also flags an important caveat: corrective data must be collected across a \emph{diverse} range of scenarios, or the aggregated dataset overfits to the narrow conditions under which corrections happened (e.g., correcting only on one campus, then failing to generalize elsewhere).
+
+\textbf{Why this fixes the compounding-error bound.} Whereas naive behavior cloning's error grows as $O(\epsilon T^2)$ (Page 12), Ross, Gordon, and Bagnell showed DAgger's reduction to online no-regret learning achieves an error bound that is only \emph{linear} in the horizon, $O(\epsilon T)$ (Ross, Gordon \& Bagnell, \emph{A Reduction of Imitation Learning and Structured Prediction to No-Regret Online Learning}, AISTATS 2011) --- directly because the training distribution now matches the distribution the deployed policy will actually encounter. The tradeoff is cost: DAgger needs a live, queryable expert during training, which is not always available or safe.
