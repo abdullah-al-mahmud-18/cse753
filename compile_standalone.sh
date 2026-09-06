@@ -23,8 +23,9 @@ source_dir=$(dirname "$input_path")
 input_name=$(basename "$input_path")
 job_name=${input_name%.tex}
 build_dir="$project_root/build"
+pdfs_dir="$project_root/pdfs"
 
-mkdir -p "$build_dir"
+mkdir -p "$build_dir" "$pdfs_dir"
 
 compile_args=(
     -interaction=nonstopmode
@@ -40,6 +41,6 @@ compile_args=(
     pdflatex "${compile_args[@]}"
 )
 
-cp "$build_dir/$job_name.pdf" "$project_root/$job_name.pdf"
+cp "$build_dir/$job_name.pdf" "$pdfs_dir/$job_name.pdf"
 
-printf 'Done. Output: %s.pdf\n' "$job_name"
+printf 'Done. Output: pdfs/%s.pdf\n' "$job_name"

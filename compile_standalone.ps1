@@ -22,8 +22,10 @@ $sourceDirectory = Split-Path -Parent $inputPath
 $inputName = Split-Path -Leaf $inputPath
 $jobName = [IO.Path]::GetFileNameWithoutExtension($inputName)
 $buildDirectory = Join-Path $projectRoot "build"
+$pdfsDirectory = Join-Path $projectRoot "pdfs"
 
 New-Item -ItemType Directory -Force -Path $buildDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $pdfsDirectory | Out-Null
 
 $pdflatexArguments = @(
     "-interaction=nonstopmode",
@@ -45,6 +47,6 @@ finally {
     Pop-Location
 }
 
-Copy-Item (Join-Path $buildDirectory "$jobName.pdf") (Join-Path $projectRoot "$jobName.pdf") -Force
+Copy-Item (Join-Path $buildDirectory "$jobName.pdf") (Join-Path $pdfsDirectory "$jobName.pdf") -Force
 
-Write-Output "Done. Output: $jobName.pdf"
+Write-Output "Done. Output: pdfs/$jobName.pdf"
