@@ -1026,7 +1026,7 @@ entirely and just imitate whatever is left, exactly like ordinary behavior cloni
 \paragraph{Aspects of this concept.}
 \begin{itemize}
 \item \textbf{Advantage:} extremely simple; no value function, no Q-learning, and
-therefore no out-of-distribution query risk at all --- it fully reuses the plain
+therefore no out-of-distribution query risk at all (During training, not during testing) --- it fully reuses the plain
 behavior-cloning machinery.
 \item \textbf{Disadvantage:} filtering happens at the level of the \emph{whole
 trajectory}. If a trajectory clears the threshold, \emph{every} $(s,a)$ pair inside it
@@ -1339,17 +1339,87 @@ expectile loss defined on the next slide.
 
 \section{Slide 25: The Expectile Loss}
 
-\paragraph{What is the concept?}
-A generalization of ordinary squared-error loss with one extra knob, $\lambda$, that
-lets the fitted value lean toward the upper or lower part of a distribution instead of
-always sitting exactly at the mean.
+\textbf{Averages treat all mistakes the same.} Imagine guessing a number, where every guess that is too high costs 1 penalty point per unit off, and every guess too low \emph{also} costs 1 penalty point per unit off. Minimizing total penalty over many guesses leads you to the \textbf{average} of all true answers. This is exactly what ordinary least-squares (squared error) loss does.
 
-\paragraph{Explanation.}
-Ordinary squared error treats being-too-high and being-too-low exactly the same way. The
-expectile loss instead makes one direction of error more expensive than the other,
-controlled by a single knob $\lambda$ between 0 and 1. Whichever direction is made more
-\emph{expensive}, the best-fit value will shift \emph{away} from making that kind of
-error --- which pulls the fit toward the \emph{opposite} side of the distribution.
+\textbf{Now change the rules of the game.} Suppose guessing too low costs much more than guessing too high — say, 9 penalty points per unit for undershooting, but only 1 penalty point per unit for overshooting. To minimize total penalty, you will now guess \emph{higher} than the plain average, since low guesses are expensive and you want to play it safe. This shifted, ``leaning'' guess is called an \textbf{expectile}.
+
+\subsection{The Formula}
+
+The expectile loss is:
+\[
+\ell_2^{\lambda}(x) =
+\begin{cases}
+(1-\lambda)\, x^2 & \text{if } x < 0 \\
+\lambda\, x^2 & \text{otherwise}
+\end{cases}
+\]
+
+where $\lambda \in (0,1)$ controls the lopsidedness of the penalty:
+
+\begin{itemize}
+    \item $\lambda = 0.5$ \(\rightarrow\) both directions penalized equally \(\rightarrow\) plain average (ordinary squared error).
+    \item $\lambda$ close to $0$ \(\rightarrow\) underestimating penalized heavily \(\rightarrow\) fit leans \textbf{up} (optimistic).
+    \item $\lambda$ close to $1$ \(\rightarrow\) overestimating penalized heavily \(\rightarrow\) fit leans \textbf{down} (pessimistic).
+\end{itemize}
+
+\textbf{Why does anyone want this?} In offline RL, we have many actions someone tried in a state, each with a quality score $Q(s,a)$. We want an estimate of ``how good is the \emph{best} stuff I saw here,'' not the average of everything including mediocre attempts. Penalizing underestimation more heavily (small $\lambda$) pulls the fitted value $V$ up toward the better end of what was actually tried — without ever having to imagine or evaluate an action nobody actually attempted.
+
+\[
+\textbf{Expectile} = \text{a mean that has been told to lean toward one side, with } \lambda \text{ as the dial for how hard it leans.}
+\]
+
+\paragraph{Why Small $\lambda$ Pulls $V$ Upward, Using Only Real Data}
+
+\subsection{Step 1: What ``Underestimating'' Means Here}
+
+In IQL, we fit a value $V(s)$ to summarize a set of $Q$-values — the scores of actions actually tried in state $s$. The residual is:
+\[
+x = V(s) - \hat{Q}(s,a)
+\]
+
+\begin{itemize}
+    \item If $x < 0$: $V(s) < Q(s,a)$ — $V$ is \textbf{underestimating} that action's value.
+    \item If $x > 0$: $V(s) > Q(s,a)$ — $V$ is \textbf{overestimating}.
+\end{itemize}
+
+\subsection{Step 2: What Small $\lambda$ Does to the Penalty}
+
+Recall: negative $x$ is scaled by $(1-\lambda)$, positive $x$ is scaled by $\lambda$.
+
+For $\lambda = 0.1$:
+\begin{align*}
+\text{underestimating } (x<0): &\quad \text{multiplier} = 1 - 0.1 = 0.9 \quad (\text{expensive}) \\
+\text{overestimating } (x>0): &\quad \text{multiplier} = 0.1 \quad (\text{cheap})
+\end{align*}
+
+The loss function effectively says: \emph{``Whatever you do, don't underestimate — that's the costly mistake. Overestimating is fine.''}
+
+\subsection{Step 3: Why This Makes $V$ Climb Upward}
+
+Suppose the observed scores for a state are:
+\[
+Q = \{2, 4, 6, 8, 10\}
+\]
+
+\begin{itemize}
+    \item If $V = 6$ (the plain average), $V$ is below three values, each costing the expensive $0.9$ penalty.
+    \item If $V = 8$ or $9$, $V$ is below fewer values, and the values it's now above only cost the cheap $0.1$ penalty.
+\end{itemize}
+
+Minimizing total penalty naturally drifts $V$ \textbf{upward}, toward the higher-scoring actions — closer to ``what the best observed action was worth,'' rather than the plain average of everything.
+
+\subsection{Step 4: Why This Is Safe}
+
+Every $Q(s,a)$ used above comes from an action \textbf{actually recorded in the data}. No hypothetical or untried action is ever evaluated.
+
+Compare this to the risky approach (plain Q-learning / AWAC), which asks: ``what's the best action the \emph{current policy} would pick right now?'' — even if that action was never tried. This is dangerous, since the model has no real evidence for an untried action's true value, risking wild overestimation.
+
+IQL avoids this entirely:
+\[
+\text{``Be optimistic about actions you \emph{did} see, by refusing to sell them short — never guess about actions you didn't see.''}
+\]
+
+This is the core mechanism behind expectile regression with small $\lambda$: an optimistic value estimate built entirely from real, already-tried actions.
 
 \paragraph{The equation.}
 $$\ell_2^\lambda(x) = \begin{cases}(1-\lambda)\,x^2 & \text{if } x<0\\ \lambda\, x^2 &
@@ -1414,21 +1484,28 @@ A full, three-step offline RL algorithm that uses expectile regression to estima
 optimistic value function \emph{without ever evaluating $Q$ on an action outside the
 dataset} --- completing the trade-off table started in Slide 23.
 
-\paragraph{Note on the slide.}
-Compare this slide's formula for $V$, which uses $x = V(s) - \hat Q(s,a)$ and instructs
-``using small $\lambda<0.5$,'' against the expectile loss on Slide 25, which used
-$x<0$ to mean the $(1-\lambda)$-weighted branch. Because $x = V - Q$ here, $x<0$ means
-$V$ is \emph{below} $Q$ (i.e., $V$ underestimates $Q$). With small $\lambda$, that
-branch is weighted by $(1-\lambda)$, which is close to $1$ --- i.e., underestimating $Q$
-is made \emph{expensive}. So the best-fit $V$ shifts \emph{up}, toward the upper
-expectile, exactly as intended. This is self-consistent with the slide's own
-instruction. It is worth knowing, however, that this labeling is the mirror image of how
-the original IQL paper writes the same loss (using $x = Q - V$ and a $\lambda$ close to
-$1$ to mean the upper expectile) --- both conventions produce the identical intended
-behavior (an optimistic $V$), they simply place the label ``small $\lambda$'' versus
-``large $\lambda$'' on opposite sides. On the exam, state which convention you are using
-in one sentence, then answer using the mechanism (``$V$ shifts above the mean''), not
-just the raw label.
+\paragraph{Note on the slide}
+There are two ways people write the ``lean upward'' rule, and they use opposite
+labels for the same idea --- so don't get confused.
+
+\textbf{This slide's way:} it defines the error as
+\[
+x = V(s) - \hat{Q}(s,a)
+\]
+So if $x$ is negative, it means $V$ came out \emph{smaller} than $Q$ --- in other
+words, $V$ is \emph{underestimating} (selling the action short). The slide says to
+use a \emph{small} $\lambda$ (like $\lambda = 0.1$). Remember the rule: negative $x$
+gets multiplied by $(1-\lambda)$. If $\lambda$ is small, then $(1-\lambda)$ is close
+to $1$ --- a big number --- so underestimating becomes \emph{expensive}. To avoid
+that expensive mistake, the best-fit $V$ climbs \emph{upward}. That's exactly the
+optimistic behavior we want, and it matches what the slide promised.
+
+\textbf{The original IQL paper's way:} it defines the error the opposite way,
+\[
+x = \hat{Q}(s,a) - V(s)
+\]
+and says to use a \emph{large} $\lambda$ (close to $1$) to get the same upward-leaning
+effect.
 
 \paragraph{Explanation of the full pipeline.}
 \begin{enumerate}
@@ -1540,23 +1617,5 @@ no OOD queries) \\
 \bottomrule
 \end{tabular}
 \end{center}
-
-\section{Key Errors and Ambiguities in the Source Slides (Review Before the Exam)}
-
-\begin{enumerate}
-\item \textbf{Slide 11, ``Diffusion Policy'':} the procedure shown (linear interpolation
-between noise and data, a single learned velocity field, Euler-integrated inference) is
-technically \emph{flow matching / rectified flow}, not classic diffusion (DDPM), which
-uses many small noising steps and a stochastic reverse process. Answer exam questions
-using the slide's own procedure; optionally note the more precise name for extra
-precision.
-\item \textbf{Slides 25--26, expectile $\lambda$ convention:} Slide 26 defines the
-residual as $x = V(s) - \hat Q(s,a)$ and instructs ``using small $\lambda < 0.5$'' to
-push $\hat V$ toward the upper expectile (this is internally self-consistent and
-verified numerically above). This is the mirror image of the original IQL paper's own
-convention, which defines the residual the other way around ($x = Q - V$) and uses
-$\lambda$ close to $1$ for the same upper-expectile behavior. State your convention in
-one sentence before answering any question that asks about the direction of $\lambda$.
-\end{enumerate}
 
 \end{document}
