@@ -15,17 +15,6 @@ Study Notes: Imitation Learning and Offline RL\\
 \maketitle
 \sloppy
 
-\section*{How to Use These Notes}
-
-These notes go through Lecture 08 (\emph{Imitation Learning and Offline RL}) slide by
-slide, in the order the slides appear. For every idea and every equation you will find:
-what it is, what it means in plain English (aimed at someone with no background beyond
-basic algebra), a table explaining every symbol, an explanation of what the equation is
-saying, and a discussion of why the idea exists, what it can and cannot do, when to use
-it, and what happens if a design choice were made differently. A few places in the
-original slides contain small errors or use non-standard notation; these are flagged
-clearly with a ``\textbf{Note on the slide}'' so you are not confused by them on exam day.
-
 \section{Slide 2: What Is Imitation Learning?}
 
 \paragraph{What is the concept?}
@@ -33,7 +22,7 @@ Imitation Learning (IL) is a way of teaching a computer program (a \emph{policy}
 perform a task by showing it recordings of an expert doing that task well --- instead of
 telling the program a reward or a rule for what ``good'' means.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Imagine you want to teach a robot to drive. You do not write down a mathematical rule
 for ``good driving.'' Instead, you record hours of a human driving: what the car's
 sensors saw (the \emph{state}) and what the driver did with the steering wheel and pedals
@@ -94,7 +83,7 @@ regression problem. For every recorded state, make the policy's predicted action
 the expert's recorded action as closely as possible. This is called \textbf{Behavior
 Cloning (BC)}.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Think of it like a fill-in-the-blank exercise: you show the network a state, it guesses
 an action, and you tell it exactly how wrong the guess was compared to what the expert
 actually did. You repeat this over the whole dataset, nudging the network's numbers a
@@ -159,7 +148,7 @@ the expert's actions are multimodal (more than one distinct, valid strategy), sq
 regression learns the \emph{average} of those strategies, which is often an action that
 is unsafe and was never actually taken by anyone.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Picture a highway scene: some human drivers, seeing a slow truck ahead, merge left; other
 drivers stay in their lane. Both are perfectly good choices. If you train a
 squared-error policy on this mixed data, it will not learn ``sometimes merge, sometimes
@@ -209,7 +198,7 @@ The expressive power of the \emph{network} (how complicated a function it can co
 is a completely different question from the expressive power of the \emph{distribution
 family} you chose for its output.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 For a video-game character choosing among a small, fixed list of buttons (up, down, A,
 B), the network can output one probability per button. This is called a
 \emph{categorical} distribution, and it can represent \emph{any} pattern of preferences
@@ -249,7 +238,7 @@ probability distribution over actions, and make the expert's actual action as
 \emph{likely as possible} under that distribution. This is \textbf{maximum likelihood
 estimation (MLE)}, and it opens the door to multimodal policies.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Rather than saying ``get as close as possible to this exact number,'' we now say ``make
 this exact action look as probable as possible under whatever shape of distribution you
 are outputting.'' If the distribution family is expressive enough (can have more than
@@ -310,7 +299,7 @@ A Gaussian Mixture Model represents the action distribution as a weighted combin
 several separate bell curves (Gaussians), each one representing a different possible
 ``strategy.''
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Imagine several bell-shaped hills, each centered on a different action (a different
 strategy the expert might use), each with its own width and its own ``how common is
 this strategy'' weight. Add all these hills together (after scaling each by its weight)
@@ -395,7 +384,7 @@ the action into its individual dimensions and predict them one at a time, each n
 dimension conditioned on all the dimensions already chosen. This uses the
 \textbf{chain rule of probability}, which is always mathematically exact.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Suppose an action has several parts (e.g., steering angle \emph{and} speed). Instead of
 guessing both at once, first guess the steering angle. Then, \emph{knowing} what
 steering angle was just chosen, guess the speed (a sharp turn probably means a slower
@@ -459,7 +448,7 @@ This slide shows how an autoregressive policy actually \emph{produces} an action
 trained: dimension by dimension, sampling each one from its own conditional
 distribution.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Once trained, using the policy is like a chain of small decisions: pick dimension 1;
 now that dimension 1 is fixed, pick dimension 2 knowing dimension 1; keep going until
 every dimension of the action has been chosen.
@@ -507,7 +496,7 @@ A concrete architecture that turns imitation learning into a sequence-modeling p
 of (desired future return, state, action) triples and asking it to predict the next
 action.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Instead of thinking in terms of states and rewards the usual RL way, treat the whole
 problem like predicting the next word in a sentence. The ``sentence'' here is a sequence
 of tokens: ``how much reward do I still want to get,'' ``what do I currently see,''
@@ -573,7 +562,7 @@ velocity field instead. For the exam, answer using exactly the procedure written
 slide; if you want to show extra precision, you can note in one sentence that the
 mechanism is really a learned vector field (flow matching), not iterative denoising.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Start with a completely random point (pure noise). Learn a ``which direction should I
 walk'' rule (the velocity field) that, if you take many small steps following it, will
 carry that random point all the way to a realistic action. Different random starting
@@ -638,7 +627,7 @@ Even with a perfectly expressive policy (Slides 6--11), imitation learning has a
 completely different failure mode: small mistakes can snowball because the policy's own
 actions change what state it sees next.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 In ordinary supervised learning (like recognizing pictures of cats), each example is
 independent --- one wrong guess does not change which picture you see next. But in
 imitation learning, the policy's action actually changes the world: a slightly wrong
@@ -686,7 +675,7 @@ from: instead of only collecting states the expert visited, it collects states t
 \emph{learner itself} visits, and labels those states with what the expert would have
 done there.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Run your current (still imperfect) policy in the real environment and see exactly where
 it goes. At each of those states, go ask the real expert, ``what would you have done
 here?'' Add these new (state, expert-action) pairs to your dataset, and retrain on
@@ -752,7 +741,7 @@ This slide contrasts the usual online RL loop (collect data, update policy, repe
 with offline RL, where the policy is trained once on a fixed, already-collected dataset
 and never interacts with the real environment during training.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Online RL is like learning to ride a bike by actually riding it, falling, and adjusting
 --- over and over, in real time. Offline RL is like being handed a giant pile of videos
 of other people riding bikes (some skilled, some not) and being asked to learn to ride
@@ -800,7 +789,7 @@ dataset generated by some unknown ``behavior policy,'' and a goal that is still 
 usual RL goal --- maximize expected total reward under the policy we are training, not
 under the policy that generated the data.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 We are handed a big table of (state, action, next state, reward) records, produced by
 \emph{some} policy $\pi_\beta$ that we do not control and may not even fully know (it
 could even be a mix of several different people's or systems' behavior). Even though we
@@ -862,7 +851,7 @@ RL algorithm can combine (``stitch together'') good pieces from \emph{different}
 trajectories into a single new trajectory that is better than any trajectory actually
 demonstrated. Plain imitation learning can never do this.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Imagine two separate recorded trips through a maze of connected states. One trip
 successfully reaches the goal ($s_9$) after passing through $s_7$; a different, separate
 trip passes through $s_3\to s_7$ but then goes somewhere unhelpful and ends badly. Even
@@ -922,7 +911,7 @@ These two slides show what happens if we take an ordinary off-policy actor-criti
 fixed, static, offline dataset. The result is a specific, serious failure: the learned
 Q-function becomes badly overestimated on actions that were never in the data.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 The usual actor-critic recipe fits a Q-function (``how good is this action here?'') and
 then improves the policy to pick whatever action the Q-function currently says is best.
 When training online, if the Q-function is wrong about some action, the agent can simply
@@ -1004,7 +993,7 @@ A very simple way to use reward information without touching Q-functions or valu
 functions at all: rank whole trajectories by their total reward, keep only the good
 ones, and run ordinary behavior cloning on what remains.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Score every recorded trip by how much total reward it earned. Throw away the low-scoring
 trips. Pretend the remaining, better trips are the only dataset that ever existed, and
 run plain behavior cloning (Slide 3/6) on it.
@@ -1069,7 +1058,7 @@ Instead of a hard yes/no cutoff (filtered BC), give every individual $(s,a)$ pai
 \emph{soft} weight based on how much better than average that specific action was ---
 its \textbf{advantage}.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Recall the advantage function: $A_\pi(s,a) = Q_\pi(s,a) - V_\pi(s)$, i.e., how much
 better action $a$ is compared to the average action in state $s$. Weighted imitation
 learning uses this number to decide how hard to imitate each recorded action: actions
@@ -1134,7 +1123,7 @@ A complete, two-step algorithm that fills in weighted imitation learning (Slide 
 a concrete way to estimate the advantage: fit a value function using plain Monte Carlo
 regression, then run weighted imitation with a temperature knob $\alpha$.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Step 1: for every state, look at the total reward that was \emph{actually observed}
 afterward in the data, and train $\hat V$ to regress toward that number directly --- an
 ordinary supervised-learning target, no bootstrapping. Step 2: run weighted imitation
@@ -1242,7 +1231,7 @@ AWAC uses the exact same weighted-imitation recipe as AWR (Slide 20/21), but rep
 the Monte Carlo value estimate with a TD (bootstrapped) estimate of $Q^{\pi_\theta}$ ---
 the value \emph{for the current policy}, not the old behavior policy.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Instead of waiting to see a whole trajectory's actual total reward (as AWR does), AWAC
 learns a Q-function the usual actor-critic way: bootstrap off of a one-step reward plus
 the estimated value of whatever the \emph{current} policy would do next. This tends to be
@@ -1325,7 +1314,7 @@ you), can we estimate something closer to a high percentile --- an ``optimistic 
 still data-grounded'' summary --- while still only ever looking at actions that actually
 appear in the data?
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Picture, for a fixed state $s'$, a histogram of $Q(s',a)$ values for all the different
 actions $a$ that the behavior policy actually tried there. Ordinary $\ell_2$ (squared
 error) regression will always find you the \emph{average height} of this histogram. But
@@ -1355,7 +1344,7 @@ A generalization of ordinary squared-error loss with one extra knob, $\lambda$, 
 lets the fitted value lean toward the upper or lower part of a distribution instead of
 always sitting exactly at the mean.
 
-\paragraph{Plain-English explanation.}
+\paragraph{Explanation.}
 Ordinary squared error treats being-too-high and being-too-low exactly the same way. The
 expectile loss instead makes one direction of error more expensive than the other,
 controlled by a single knob $\lambda$ between 0 and 1. Whichever direction is made more
@@ -1441,7 +1430,7 @@ behavior (an optimistic $V$), they simply place the label ``small $\lambda$'' ve
 in one sentence, then answer using the mechanism (``$V$ shifts above the mean''), not
 just the raw label.
 
-\paragraph{Plain-English explanation of the full pipeline.}
+\paragraph{Explanation of the full pipeline.}
 \begin{enumerate}
 \item Fit $\hat V(s)$ to be an optimistic-but-honest summary of $\hat Q$ at each state,
 using expectile regression, restricted entirely to the $(s,a)$ pairs that are actually in
