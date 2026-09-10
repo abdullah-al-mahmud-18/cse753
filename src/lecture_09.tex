@@ -1,0 +1,1010 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage{longtable}
+
+\sloppy
+
+\title{CSE 753 -- Advanced Reinforcement Learning \\ Study Notes: Lecture 09, Reward Learning}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\noindent This note covers Lecture 09 (Reward Learning: goal classifiers, learning
+reward from human preferences, RLHF, DPO, and RLAIF). It is built from the lecture
+slides, the exam-focus guide, and the ``what is expected'' guide. Each concept is
+explained twice: once in plain, everyday language, and once with the precise
+technical statement a grader expects. Every equation is broken into a symbol table.
+Places where the slides contain a typo or an ambiguity are flagged explicitly,
+because the exam is open-book and rewards students who notice these and state a
+clean assumption.
+
+\bigskip
+\noindent\textbf{The one idea that ties this whole lecture together:} whenever we
+replace the true objective with a learned stand-in (a classifier, a reward model),
+the optimizer will chase the places where the stand-in is \emph{wrong}, not just
+the places where it is right. Every failure mode in this lecture -- classifier
+exploitation, reward hacking under RLHF -- is this same idea wearing a different
+costume. Say this explicitly on the exam whenever it is relevant; it is repeatedly
+flagged as a full-marks signal.
+
+\section{Where Does the Reward Come From?}
+
+\subsection{What is the concept?}
+In every RL problem we assume a reward function exists and tells the agent how
+good each state or action is. This slide asks the question underneath that
+assumption: in a real task (a robot, a dialogue agent, a self-driving car), who
+actually writes down that reward function?
+
+\subsection{Plain-English explanation}
+Think about training a puppy. In a simple game you can say ``+1 point for every
+ball fetched.'' But how do you give a robot a ``score'' for making a good cup of
+tea, or give a chatbot a ``score'' for giving a helpful answer? Nobody can write a
+formula for that. In real tasks we usually only have a hand-made stand-in
+(a \emph{proxy}) for what we actually want, because the true goal is too fuzzy to
+write as a formula.
+
+\subsection{Why not just imitate an expert instead?}
+The slide raises direct imitation learning (copy what an expert did) as one
+alternative, and lists why it is not enough by itself:
+\begin{itemize}
+  \item Imitation only mimics actions; it never reasons about \emph{why} those
+  actions were good, so it cannot generalize to a new situation the expert never
+  faced.
+  \item The expert might move in ways the robot physically cannot (different
+  ``degrees of freedom''), so copying literally does not transfer.
+  \item Sometimes there is no expert at all to record demonstrations from.
+\end{itemize}
+This motivates the rest of the lecture: instead of copying an expert, or hand
+writing a reward, can we \emph{learn} a reward function from weaker, easier
+signals such as example goal states or human comparisons?
+
+\subsection{Problem it solves}
+It solves the ``reward specification'' problem: how to get a usable reward signal
+for tasks where no formula for the reward exists.
+
+\subsection{Problem it cannot solve (yet)}
+Just raising the question does not solve it. This slide is purely diagnostic; the
+rest of the lecture is the set of concrete fixes (goal classifiers, preference
+learning, RLHF, RLAIF).
+
+\section{Goal Classifiers}
+
+\subsection{What is the concept?}
+A goal classifier is a small binary (yes/no) classifier trained to recognize
+``did the task succeed in this state?'' Its output is then \emph{used as the
+reward signal} for an RL algorithm.
+
+\subsection{Plain-English explanation}
+Suppose the task is ``put the pencil case behind the notebook.'' Instead of
+writing a mathematical rule for success, you show the computer a pile of pictures
+where the task succeeded (label 1) and a pile where it did not (label 0), and you
+train an ordinary image classifier on those pictures. Now, whenever the robot ends
+up in some new state, you ask the classifier ``does this look like success?'' and
+whatever number it spits out (between 0 and 1) becomes the reward for that state.
+
+\subsection{The algorithm, step by step (slide 3)}
+\begin{enumerate}
+  \item Collect example states inside the goal set $G$ (success) and outside it
+  (failure).
+  \item Train a binary classifier $C_\phi(s)$ with inputs $s_i$ and labels
+  $\mathbf{1}(s_i \in G)$.
+  \item Run RL using the classifier's output as the reward.
+\end{enumerate}
+
+\subsection*{Equation / notation table}
+\begin{center}
+\begin{tabular}{|>{\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}p{10.3cm}|}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$s_i$ & One example state (a snapshot of the world, e.g. a photo of the table). \\
+\hline
+$G$ & The set of all states that count as ``the task is done.'' \\
+\hline
+$\mathbf{1}(s_i \in G)$ & A label that is $1$ if state $s_i$ is a success and $0$
+otherwise -- this is exactly what you would type into a spreadsheet next to each
+photo. \\
+\hline
+$C_\phi(s)$ & The trained classifier, with learnable parameters $\phi$; given a
+state it outputs a number between 0 and 1. \\
+\hline
+\end{tabular}
+\end{center}
+\textbf{What the whole idea is saying:} ``train an ordinary yes/no classifier on
+labelled snapshots, and reuse its confidence score as if it were a reward.''
+
+\subsection{What can go wrong (slide 4) -- Attribute the failure}
+\textbf{Name of the phenomenon:} the RL agent \emph{exploits the classifier's
+weaknesses}.
+
+\textbf{Mechanism, step by step:}
+\begin{enumerate}
+  \item The RL agent is not told ``reach success states''; it is told ``maximize
+  the classifier's output number.''
+  \item Those are only the same thing on states the classifier was actually
+  trained on.
+  \item RL exploration is very good at finding unusual, never-before-seen states.
+  \item On those unseen states the classifier's output is meaningless (it is
+  guessing), and RL will happily steer toward whichever unseen state happens to
+  score high, even though it is not a real success.
+\end{enumerate}
+\textbf{Canonical example (from the exam-focus guide):} a cup left upside down on
+a coaster scores $0.91$ from the classifier even though the task was never
+completed -- the classifier had never seen an upside-down cup during training, so
+it guessed, and it guessed wrong in a way that happened to reward the agent.
+
+\subsection{The proposed fix (slides 5--6): retrain on visited states}
+\textbf{Idea:} every state the RL agent visits during rollouts is added to the
+\emph{negative} set $D_-$, the classifier is retrained on a freshly rebalanced
+50/50 mix of $D_+$ and $D_-$, and the loop repeats.
+
+\begin{center}
+\begin{tabular}{|>{\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}p{10.3cm}|}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$D_+$ & The growing set of states known to be successes (goal states). \\
+\hline
+$D_-$ & The growing set of states known to be failures, continually topped up with
+every state the RL agent has ever visited. \\
+\hline
+$s_t$ & A state visited at time $t$ during a rollout of the current policy $\pi$. \\
+\hline
+$D_- \leftarrow D_- \cup \{s_t\}$ & ``Add this newly visited state to the failure
+pile,'' regardless of whether it happens to actually be a success. \\
+\hline
+\end{tabular}
+\end{center}
+\textbf{Plain-English reading of the loop:} every time the agent finds a new
+``loophole'' state that fools the classifier, that exact state gets thrown into
+the failure pile and the classifier is retrained. The classifier can never be
+fooled twice by the same trick, because the trick becomes a labelled negative
+example the moment it is used.
+
+\subsection{The paradox and its resolution -- Justify the design (E4)}
+\textbf{The worry:} genuine goal states, once visited during rollouts, also get
+added to $D_-$. Doesn't that teach the classifier that the goal is a failure?
+
+\textbf{The resolution:} no, because of the 50/50 \emph{rebalancing} step, not
+because the goal states ``look different.'' Work through it:
+\begin{itemize}
+  \item A true goal state can appear on \emph{both} sides: in $D_+$ (from the
+  original positive examples, or from being reached during RL and recorded as
+  success) and in $D_-$ (from the blanket rule that every visited state is added
+  to the negatives).
+  \item $D_+$ starts small; $D_-$ grows huge because \emph{every} visited state
+  goes there, success or not.
+  \item Balancing the training batch to 50/50 means each example in the small
+  $D_+$ is effectively \emph{upweighted} relative to each example in the huge
+  $D_-$.
+  \item For a state that appears on both sides, the upweighted positive evidence
+  is at least as strong as the negative evidence, so the best classifier output
+  for it is $p \ge 0.5$.
+  \item A true failure state, by contrast, appears \emph{only} in $D_-$ and gets
+  driven toward $0$.
+\end{itemize}
+\textbf{Why this matters for exam marks:} an answer that says ``it still works
+because the goal state looks different from other states'' earns zero credit.
+The question is specifically testing whether you know it is the \emph{balancing
+step} doing the work, not anything about the state's appearance.
+
+\subsection{Advantages}
+\begin{itemize}
+  \item No reward function has to be hand-engineered; only labelled example
+  states are needed, which are usually far easier to collect than a formula.
+  \item Works for tasks that are easy to \emph{recognize} but hard to
+  \emph{describe} mathematically (e.g. ``the room looks tidy'').
+\end{itemize}
+
+\subsection{Disadvantages}
+\begin{itemize}
+  \item Vulnerable to exploitation by the very optimizer it is meant to guide,
+  unless the retraining loop (slides 5--6) is used.
+  \item Binary only: it can say ``success'' or ``not success'' but cannot rank two
+  different successes against each other (a perfectly folded shirt and a barely
+  acceptable one score the same).
+  \item The retraining loop adds engineering complexity (a classifier retraining
+  step nested inside the RL loop) and still needs an initial, reasonably diverse
+  $D_+$/$D_-$ to start from.
+\end{itemize}
+
+\subsection{What problem it solves}
+Turns a task that has no formula for success into a supervised-learning problem:
+label some states, train a classifier, use the classifier's confidence as reward.
+
+\subsection{What it cannot solve}
+It cannot express \emph{degrees} of success -- there is no way for a goal
+classifier to say ``this outcome is better than that outcome,'' only ``this is a
+success/failure.'' It also cannot originate the idea of the goal on its own; a
+human still has to supply the initial labelled examples.
+
+\subsection{What problem it gave rise to}
+Its binary, all-or-nothing nature is exactly the gap that motivates the next
+section: learning reward from \emph{human preferences} (which trajectory is
+better?), because preferences give a graded signal instead of a yes/no stamp.
+
+\subsection{When to use it}
+Use a goal classifier when success is visually or perceptually easy to recognize
+but has no clean symbolic description (most manipulation and navigation tasks),
+and when you are able to run the retrain-on-visited-states loop to keep it honest.
+
+\subsection{When not to use it}
+Avoid it when you need to rank the \emph{quality} of successes, not just detect
+success versus failure (e.g. comparing two different helpful chatbot answers) --
+use preference-based reward learning (Section~3) instead.
+
+\subsection{Counterfactual -- what if a part were done differently?}
+If step 5 (adding visited states to $D_-$) were skipped, the classifier would
+never see the agent's newly-discovered exploits, and the ``what can go wrong''
+failure of Section 2.4 would recur indefinitely -- the agent would keep finding
+new blind spots forever. If the 50/50 rebalancing were dropped and the raw
+(highly imbalanced) $D_+ / D_-$ were used instead, the massive $D_-$ set would
+swamp the training signal and the classifier could be pushed to output near-zero
+for genuine goal states, since a small number of positive labels for that state
+would no longer be able to outweigh a large number of negative labels for it --
+which reintroduces exactly the same problem the retraining loop was built to
+avoid.
+
+\section{Learning Reward from Human Preferences}
+
+\subsection{What is the concept?}
+Instead of asking a human to grade a single trajectory with a number, ask a much
+easier question: ``Given two trajectories, which one is better?'' Then fit a
+reward function so that it assigns a higher score to whichever one the human
+preferred.
+
+\subsection{Plain-English explanation}
+It is much harder for a person to say ``this trajectory is worth exactly 7.3
+points'' than to say ``I like trajectory A more than trajectory B.'' Comparisons
+are a natural, easy judgment for humans; absolute scores are not. So the lecture
+builds a reward function purely from these easier, relative comparisons.
+
+\subsection{The reward-consistency requirement (slide 8)}
+If a human says $\tau_w$ (the winner) is better than $\tau_l$ (the loser), we want
+a reward function $r_\theta$ such that the total reward it assigns to $\tau_w$ is
+higher than the total reward it assigns to $\tau_l$:
+\[
+\sum_{(s,a)\in\tau_w} r_\theta(s,a) \;>\; \sum_{(s,a)\in\tau_l} r_\theta(s,a)
+\]
+
+\paragraph{Error flag.} The lecture slide (slide 8) actually writes the
+right-hand side as $\sum_{(s,a)\in\tau_w} l_\theta(s,a)$ -- both the sum and the
+subscript on the summation are copied from the left-hand side by mistake. The
+corrected statement, matching the surrounding text and every later slide, is the
+one shown above: the second sum ranges over $\tau_l$ (the losing trajectory), not
+$\tau_w$. Write the corrected form on the exam and note in one sentence that the
+slide has a typo.
+
+\begin{center}
+\begin{tabular}{|>{\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}p{10.3cm}|}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$\tau_w$ & The trajectory the human judged to be the \emph{winner} (better one). \\
+\hline
+$\tau_l$ & The trajectory the human judged to be the \emph{loser} (worse one). \\
+\hline
+$(s,a)$ & One state-action pair visited along a trajectory. \\
+\hline
+$r_\theta(s,a)$ & The learned reward model's score for taking action $a$ in state
+$s$, with learnable parameters $\theta$. \\
+\hline
+\end{tabular}
+\end{center}
+\textbf{Plain reading:} ``whatever reward function we learn, it had better give a
+higher total score to the trajectory the human liked more.''
+
+\subsection{The Bradley--Terry preference model}
+To turn ``$\tau_w$ should score higher'' into something we can train with
+gradient descent, the lecture defines a \emph{probability} of preference using
+the logistic sigmoid $\sigma$:
+\[
+P(\tau_a \succ \tau_b) = \sigma\big(r_\theta(\tau_a) - r_\theta(\tau_b)\big)
+\]
+and then trains $\theta$ by maximizing the log-probability of the human's actual
+choices:
+\[
+\max_\theta \; \mathbb{E}_{\tau_w,\tau_l}\Big[\log \sigma\big(r_\theta(\tau_w) -
+r_\theta(\tau_l)\big)\Big]
+\]
+
+\begin{center}
+\begin{tabular}{|>{\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}p{10.3cm}|}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$\sigma(x) = \frac{1}{1+e^{-x}}$ & The sigmoid function. Turns any real number
+into a value between 0 and 1, so it can be read as a probability. \\
+\hline
+$r_\theta(\tau_a) - r_\theta(\tau_b)$ & How much more reward the model currently
+thinks trajectory $a$ deserves compared to trajectory $b$. \\
+\hline
+$P(\tau_a \succ \tau_b)$ & The model's guess at the probability that a human would
+say trajectory $a$ is better than trajectory $b$. \\
+\hline
+$\mathbb{E}_{\tau_w,\tau_l}[\cdot]$ & Average over many human-labelled comparison
+pairs in the dataset. \\
+\hline
+$\log \sigma(\cdot)$ & The log-likelihood of the human's actual answer; maximizing
+this pushes the reward gap in the direction the human indicated. \\
+\hline
+\end{tabular}
+\end{center}
+\textbf{Plain-English reading of the whole equation:} ``the bigger the reward gap
+the model assigns between the winner and the loser, the closer $\sigma$ gets to
+1, i.e. the more confidently the model agrees with the human; train the model to
+make this agreement as strong as possible, on average, across all the
+comparisons we have.''
+
+\subsection{Worked numeric example (Execute -- E1)}
+Given $r_\theta(\tau_w) = 4.0$ and $r_\theta(\tau_l) = 1.5$:
+\begin{align*}
+\Delta &= r_\theta(\tau_w) - r_\theta(\tau_l) = 4.0 - 1.5 = 2.5 \\
+\sigma(2.5) &= \frac{1}{1+e^{-2.5}} \approx 0.924 \\
+\text{loss} &= -\log(0.924) \approx 0.079
+\end{align*}
+\textbf{Reading the number (E2):} a small loss like $0.079$ means the reward
+model already ranks this pair the way the human did -- there is not much left to
+learn from this particular comparison. A large loss would mean the model
+currently disagrees with the human and this pair carries a strong training
+signal.
+
+\subsection{The reward-learning training loop (slide 9)}
+\begin{enumerate}
+  \item From a dataset of trajectories, sample a batch of $k$ trajectories and
+  ask humans to rank them (for LLMs, all $k$ trajectories answer the same
+  prompt).
+  \item Compute $r_\theta(\tau_1), \dots, r_\theta(\tau_k)$ under the current
+  reward model.
+  \item For all $\binom{k}{2}$ pairs in the batch, compute the gradient of
+  $\mathbb{E}_{\tau_w,\tau_l}[\log \sigma(r_\theta(\tau_w)-r_\theta(\tau_l))]$.
+  \item Update $\theta$ using the computed gradient.
+  \item Repeat from step 2.
+\end{enumerate}
+\textbf{Combinatorics (Execute):} ranking $k$ items produces $\binom{k}{2}$
+pairwise comparisons. For $k=6$: $\binom{6}{2} = \frac{6 \times 5}{2} = 15$
+comparisons. This is why ranking a whole batch at once is more data-efficient
+than asking for one pairwise comparison at a time -- a single ranking of 6 items
+is worth 15 individual comparisons for free.
+
+\subsection{Why preferences instead of absolute scores -- Justify the design}
+\begin{itemize}
+  \item Relative comparisons are a far easier, more natural judgment for a human
+  to make than an absolute numeric score.
+  \item The reward model only needs to be \emph{discriminative} (correctly order
+  pairs), not \emph{calibrated} (produce a score on any particular numeric
+  scale) -- a much weaker and easier requirement to satisfy.
+\end{itemize}
+
+\subsection{Advantages}
+\begin{itemize}
+  \item Sidesteps the impossible task of hand-writing a numeric reward.
+  \item Cheap, natural signal to collect from ordinary humans (or, later, from
+  another AI -- Section 6).
+  \item Ranking a batch of $k$ items yields $\binom{k}{2}$ comparisons ``for
+  free,'' so it is data-efficient.
+\end{itemize}
+
+\subsection{Disadvantages}
+\begin{itemize}
+  \item Only captures the \emph{difference} between two rewards -- the absolute
+  scale of the reward function is never pinned down by this loss (this same fact
+  reappears, with larger consequences, in the DPO derivation in Section 5).
+  \item Needs many human comparisons, which is still a real cost at scale, and
+  motivated Section 6 (RLAIF) as a way to remove that cost.
+\end{itemize}
+
+\subsection{What problem it solves}
+Produces a trainable, differentiable reward function from human judgments that
+never required a single absolute numeric score.
+
+\subsection{What it cannot solve}
+By itself, this only trains a reward model; it does not yet say how to use that
+reward model to actually improve a policy. That is the job of the RLHF pipeline
+in the next sections.
+
+\subsection{What problem it gave rise to}
+Once you have a learned reward model instead of a true reward, you have created a
+new failure mode: the policy can be pushed to \emph{over-optimize} the learned
+model rather than the real objective it stands in for. This is the reward-hacking
+problem addressed in Section 5.
+
+\subsection{Counterfactual}
+If the loss only used $r_\theta(\tau_w)$ alone (with no comparison to
+$r_\theta(\tau_l)$), the model would have no notion of relative quality at all --
+it would degenerate into trying to make every trajectory's reward large, which is
+not a meaningful training signal, since there would be nothing to push the reward
+of bad trajectories down.
+
+\section{RLHF: The Three-Stage Pipeline for LLMs}
+
+\subsection{What is the concept?}
+For large language models, reward learning from preferences is embedded in a
+larger three-stage recipe: pre-train, then supervised fine-tune, then apply
+reinforcement learning against a learned reward model. This is the standard
+``RLHF'' pipeline.
+
+\begin{center}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}p{4.8cm}|>{\raggedright\arraybackslash}p{5.3cm}|}
+\hline
+\textbf{Stage} & \textbf{Objective} & \textbf{Data / signal} \\
+\hline
+1. Large-scale pre-training & Next-token prediction & Massive, mixed-quality,
+unlabelled text corpus \\
+\hline
+2. Supervised fine-tuning & Maximum likelihood on demonstrations & Curated,
+higher-quality (prompt, response) pairs \\
+\hline
+3. RL from human feedback & Maximize the learned reward model minus a KL penalty
+to the pre-trained model & Human \emph{pairwise preference comparisons}
+$(x, y_w, y_l)$, used to train the reward model \\
+\hline
+\end{longtable}
+\end{center}
+
+\paragraph{Error flag.} On the lecture slide, stage 3's subtitle literally repeats
+stage 2's subtitle (``on higher-quality (prompt, response)''). This is a
+copy-paste typo. Stage 3's actual data is \emph{preference comparisons}, not
+plain (prompt, response) pairs -- do not copy the slide's subtitle verbatim on
+the exam.
+
+\subsection{Plain-English explanation of the pipeline}
+\begin{enumerate}
+  \item \textbf{Pre-training:} the model first reads huge amounts of text and
+  just learns to predict the next word. It becomes fluent, but it has not yet
+  learned to be a good assistant.
+  \item \textbf{Supervised fine-tuning:} the model is shown a smaller set of
+  high-quality example conversations and trained to imitate them directly, the
+  same way ordinary supervised learning works.
+  \item \textbf{RLHF:} finally, the model generates several candidate answers to
+  a prompt, a reward model (trained from human preference comparisons, as in
+  Section 3) scores them, and reinforcement learning nudges the model's
+  parameters toward answers that score higher.
+\end{enumerate}
+
+\subsection{Gathering preference data for LLMs (slides 10--11)}
+For a prompt $x$ (e.g. ``How do I cook an omelette?''), the model samples two
+candidate replies $y$ and $y'$. A human is shown both and picks the better one,
+written $y \succ y'$. A reward model $r(x,y)$ (or $RM_\phi(x,y)$) is then trained
+on many such comparisons, exactly following the Bradley--Terry loss from
+Section 3.
+
+\subsection{Advantages of the three-stage pipeline}
+\begin{itemize}
+  \item Separates concerns cleanly: fluency (stage 1), instruction-following
+  style (stage 2), and alignment with nuanced human judgment (stage 3).
+  \item Reuses cheap, plentiful data (raw text) for the most expensive-to-train
+  stage, and saves the costly human-labelled data for the stages that need it
+  most.
+\end{itemize}
+
+\subsection{Disadvantages}
+\begin{itemize}
+  \item Three separate training stages: expensive, slow, and each stage can
+  introduce its own errors that propagate forward.
+  \item Stage 3 needs a working reward model \emph{and} an RL loop, both of which
+  add engineering complexity and instability (see Section 5).
+\end{itemize}
+
+\subsection{What problem it solves}
+Converts human notions of ``a good response'' -- which have no formula -- into a
+concrete training signal a language model can be optimized against, without
+needing millions of hand-written demonstrations for every possible prompt.
+
+\subsection{What it cannot solve}
+It does not, by itself, prevent the RL stage from over-optimizing the learned
+reward model (reward hacking) -- see Section 5.
+
+\subsection{Counterfactual}
+If stage 3 skipped the reward model and instead reinforced the model directly
+against the raw preference labels (i.e. treated preference as the reward with no
+learned generalization), the model could only ever be evaluated on the exact
+pairs humans labelled -- it would have no way to score a brand-new response the
+policy generates during RL, so RL could not proceed at all. The learned reward
+model is precisely what lets the signal generalize to unseen responses.
+
+\section{RLHF: Optimizing the Learned Reward Model}
+
+\subsection{What is the concept?}
+Given a frozen reward model $RM_\phi$, RLHF fine-tunes a copy of the language
+model, $p^{RL}_\theta$, to produce responses that score highly under $RM_\phi$,
+while adding a penalty that stops it from drifting too far from the original
+pre-trained model $p^{PT}$.
+
+\subsection{The objective (slide 12)}
+\[
+\mathbb{E}_{\hat y \sim p^{RL}_\theta(\hat y \mid x)}
+\left[RM_\phi(x,\hat y) - \beta \log\left(\frac{p^{RL}_\theta(\hat y \mid
+x)}{p^{PT}(\hat y \mid x)}\right)\right]
+\]
+
+\begin{center}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}p{10.3cm}|}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$p^{PT}(\hat y \mid x)$ & The frozen, pre-trained (or instruction-tuned) language
+model; the fixed ``anchor'' we do not want to drift too far from. \\
+\hline
+$p^{RL}_\theta(\hat y \mid x)$ & The copy of the model currently being trained by
+RL; starts identical to $p^{PT}$, then its parameters $\theta$ are updated. \\
+\hline
+$\hat y$ & A response generated by the current RL policy for prompt $x$. \\
+\hline
+$RM_\phi(x,\hat y)$ & The learned reward model's score for how good response
+$\hat y$ is for prompt $x$. \\
+\hline
+$\log\left(\dfrac{p^{RL}_\theta(\hat y|x)}{p^{PT}(\hat y|x)}\right)$ & A per-response
+measure of how much more (or less) likely the RL model makes this response
+compared to the original pre-trained model -- large when the RL model has drifted
+away from the original behaviour. \\
+\hline
+$\beta$ & A single number (a ``price tag'') controlling how strongly drift away
+from $p^{PT}$ is penalized. \\
+\hline
+\end{longtable}
+\end{center}
+\textbf{Plain-English reading:} ``try to make the model's answers score highly on
+the learned reward model, but charge a penalty, priced at $\beta$, for every bit
+the model's behaviour drifts away from how it used to talk before RL started.''
+
+\subsection{Reading the two extremes of $\beta$ -- Bound the claim (E5)}
+\begin{itemize}
+  \item \textbf{$\beta \to 0$:} the drift penalty disappears; the objective
+  becomes pure reward maximization. The policy is then free to exploit any error
+  in $RM_\phi$, producing degenerate, high-scoring text that has lost fluency and
+  general capability.
+  \item \textbf{$\beta \to \infty$:} the penalty completely dominates the reward
+  term, forcing $p^{RL}_\theta \approx p^{PT}$. The model stops changing at all --
+  it is maximally safe, but it has learned nothing from the human preferences.
+\end{itemize}
+This is exactly the same shape of trade-off as the KL-constraint limits in
+actor-critic methods (Lecture 07): a constraint that is too loose lets the
+optimizer run wild against an imperfect target; a constraint that is too tight
+prevents any learning.
+
+\subsection{Reward hacking / over-optimization -- Attribute the failure (E3)}
+\textbf{Name of the phenomenon:} reward hacking, also called over-optimization of
+a learned reward model.
+
+\textbf{Mechanism, step by step:}
+\begin{enumerate}
+  \item $RM_\phi$ was trained on a finite sample of human comparisons, so it is
+  only accurate \emph{on the distribution of responses it was trained on}.
+  \item The RL policy is explicitly searching for the responses that score
+  highest under $RM_\phi$.
+  \item That search process actively drives the policy toward unusual,
+  off-distribution responses, precisely where $RM_\phi$'s accuracy has never been
+  checked.
+  \item The result is a response that $RM_\phi$ rates very highly but that a
+  human would actually judge as low quality, confidently wrong, or strange.
+\end{enumerate}
+\textbf{Diagnostic signs to look for (two together, not one alone):}
+\begin{enumerate}
+  \item The reward-model score keeps climbing while human-judged quality
+  actually falls (confident but wrong outputs).
+  \item Outputs start looking qualitatively different from the pre-trained
+  model's style, i.e. the KL divergence from $p^{PT}$ has grown large, often with
+  repetitive or degenerate stylistic tics.
+\end{enumerate}
+\textbf{Fix:} increase $\beta$, and/or stop training earlier, and/or retrain the
+reward model on fresh, on-policy comparisons so it stays accurate on the region
+the policy currently occupies.
+
+\subsection{The shared-structure connection -- worth stating explicitly}
+This is the same failure, in a new outfit, as classifier exploitation in
+Section 2: a learned stand-in for the true objective is only reliable on the data
+it was trained on, and an optimizer that searches hard enough will always find
+the stand-in's blind spots. On the exam, naming this connection explicitly (in
+one sentence) is called out as a signal of real understanding rather than rote
+recall.
+
+\subsection{Advantages}
+\begin{itemize}
+  \item Gives a tunable dial ($\beta$) that trades off ``learn from preferences''
+  against ``stay safe and close to the original model.''
+  \item Works even though the true, ideal reward is unknown -- it only needs a
+  learned proxy.
+\end{itemize}
+
+\subsection{Disadvantages}
+\begin{itemize}
+  \item Requires careful tuning of $\beta$; get it wrong in either direction and
+  you get degenerate outputs or no learning at all.
+  \item Needs a full RL training loop plus sampling from the policy at every
+  step -- computationally expensive and can be unstable.
+  \item Vulnerable to reward hacking whenever $\beta$ is too small or training
+  runs too long.
+\end{itemize}
+
+\subsection{What problem it solves}
+Gives a concrete, tunable way to fine-tune a language model against a learned
+notion of ``good response'' without completely destroying its original fluency
+and capabilities.
+
+\subsection{What it cannot solve}
+It cannot guarantee the learned reward model stays accurate forever as the policy
+moves; nothing in the objective itself detects when $RM_\phi$ has become
+unreliable -- that has to be watched for externally (the two diagnostic signs
+above).
+
+\subsection{What problem it gave rise to}
+The expense and instability of running a full RL loop against a separately
+trained, frozen reward model is exactly what motivates Direct Preference
+Optimization (Section 5): can we skip the reward model and the RL loop entirely?
+
+\subsection{When to use it}
+Use full RLHF with an explicit reward model and RL loop when you want the
+flexibility to reuse the reward model for multiple downstream policies, or when
+online sampling during training is feasible and affordable.
+
+\subsection{When not to use it}
+Avoid it when training compute or stability is limited, or when a simpler,
+directly-supervised alternative (DPO) would reach a similar result more cheaply.
+
+\subsection{Counterfactual}
+If the KL penalty term were removed entirely and only $RM_\phi(x,\hat y)$ were
+maximized, that is exactly the $\beta \to 0$ case above: reward hacking would set
+in quickly since nothing anchors the model to sensible, fluent language.
+
+\section{Direct Preference Optimization (DPO)}
+
+\subsection{What is the concept?}
+DPO is a way to get the same effect as the full RLHF pipeline (fine-tune a
+language model to match human preferences) \emph{without} training a separate
+reward model and \emph{without} running an RL loop at all. It reduces the whole
+problem to a single supervised classification-style loss computed directly on
+preference pairs.
+
+\subsection{Plain-English explanation}
+The big insight is: the RLHF objective from Section 5 has an exact mathematical
+solution on paper -- if you already knew the ideal reward model, you could write
+down the exact best-fine-tuned model in one formula, with no trial-and-error RL
+needed. DPO flips that formula around: instead of using it to compute the best
+model from a known reward, it uses it to say ``whatever the reward model would
+have been, it can be written directly in terms of the model itself.'' That
+means the model becomes its own reward model, and the preference loss from
+Section 3 can be trained directly on the language model's parameters -- no
+separate reward network, no RL loop, no sampling during training.
+
+\subsection{The derivation, one link at a time (examinable in full)}
+
+\paragraph{Step 1 -- the closed-form optimum (slide 13).}
+The RLHF objective from Section 5 has an exact best solution:
+\[
+p^*(\hat y \mid x) = \frac{1}{Z(x)}\, p^{PT}(\hat y \mid x)\, \exp\!\left(\frac{1}{\beta}
+RM(x,\hat y)\right)
+\]
+
+\begin{center}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}p{10.3cm}|}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$p^*(\hat y \mid x)$ & The exact, ideal fine-tuned model that would come out of
+solving the RLHF objective perfectly. \\
+\hline
+$Z(x)$ & The normalizing constant (partition function) that makes $p^*(\cdot|x)$
+sum to 1 over all possible responses $y$; formally
+$Z(x) = \sum_y p^{PT}(y|x)\exp(RM(x,y)/\beta)$. It depends only on the prompt
+$x$, not on any particular response. \\
+\hline
+$\exp\!\left(\frac{1}{\beta}RM(x,\hat y)\right)$ & Reshapes the pre-trained
+distribution to favour high-reward responses more strongly as $\beta$ shrinks. \\
+\hline
+\end{longtable}
+\end{center}
+\textbf{Plain reading:} ``the perfect fine-tuned model just takes the original
+model's probabilities and re-weights them to favour high-reward responses,
+renormalized so everything still sums to 1.''
+
+\paragraph{Step 2 -- rearrange to express the reward as a log-ratio.}
+\[
+RM(x,\hat y) = \beta \log\left(\frac{p^*(\hat y \mid x)}{p^{PT}(\hat y \mid
+x)}\right) + \beta \log Z(x)
+\]
+This is just algebra on Step 1: solve for $RM(x,\hat y)$ instead of for
+$p^*(\hat y|x)$.
+
+\paragraph{Step 3 -- this holds for an arbitrary language model.}
+Since the relationship in Step 2 is just algebra, it holds no matter which model
+plays the role of $p^*$. So we can plug in \emph{any} candidate model
+$p^{RL}_\theta$ and \emph{define} an implied reward model straight from it:
+\[
+RM_\theta(x,\hat y) = \beta \log\left(\frac{p^{RL}_\theta(\hat y \mid
+x)}{p^{PT}(\hat y \mid x)}\right) + \beta \log Z(x)
+\]
+\textbf{Plain reading:} ``the policy is implicitly its own reward model'' -- once
+we know $\beta$, the pre-trained model, and the current policy, we already know
+what reward model would have produced this policy as the RLHF optimum. No
+separate reward network is needed.
+
+\paragraph{Step 4 -- substitute into the Bradley--Terry loss; $Z(x)$ cancels.}
+\[
+RM_\theta(x,y^w) - RM_\theta(x,y^l) = \beta \log \frac{p^{RL}_\theta(y^w \mid
+x)}{p^{PT}(y^w \mid x)} - \beta \log \frac{p^{RL}_\theta(y^l \mid x)}{p^{PT}(y^l
+\mid x)}
+\]
+\[
+J_{\text{DPO}}(\theta) = -\mathbb{E}_{(x,y^w,y^l)\sim\mathcal{D}}\left[\log
+\sigma\Big(RM_\theta(x,y^w) - RM_\theta(x,y^l)\Big)\right]
+\]
+
+\begin{center}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{3.2cm}|>{\raggedright\arraybackslash}p{10.3cm}|}
+\hline
+\textbf{Symbol} & \textbf{What it means} \\
+\hline
+$y^w$, $y^l$ & The human-preferred (winner) and non-preferred (loser) response to
+the same prompt $x$. \\
+\hline
+$\mathcal{D}$ & The dataset of human preference triples $(x, y^w, y^l)$. \\
+\hline
+$J_{\text{DPO}}(\theta)$ & The final DPO training loss -- an ordinary supervised
+loss, computed directly on the language model's own output probabilities, with no
+RL loop and no separate reward network. \\
+\hline
+\end{longtable}
+\end{center}
+
+\subsection{Why $Z(x)$ cancels -- Justify the design (E4)}
+\textbf{What $Z(x)$ is:} the partition function for prompt $x$: a sum over the
+\emph{entire space} of possible responses $y$. That space is exponentially large
+(every possible sequence of tokens), so $Z(x)$ is intractable to compute exactly.
+
+\textbf{Why it cancels:} $Z(x)$ depends only on the prompt $x$, not on the
+particular response $y$. The DPO loss only ever needs the \emph{difference}
+between the implied reward of two responses to the \emph{same} prompt $x$
+($y^w$ and $y^l$). Since $\beta\log Z(x)$ is added identically to both
+$RM_\theta(x,y^w)$ and $RM_\theta(x,y^l)$, it is subtracted from itself in the
+difference and disappears -- without ever having to be computed.
+
+\textbf{The practical consequence, the part most often missed:} because only the
+difference survives, DPO training can compute \emph{relative} rewards between two
+responses to the same prompt exactly, but the \emph{absolute} reward of a single
+response is only known up to the unknown constant $\beta \log Z(x)$. That is
+completely sufficient for preference optimization (which only ever compares
+pairs), but it is \emph{not} sufficient for any downstream use that needs a
+calibrated, absolute reward score for a single response on its own.
+
+\subsection{Worked numeric example (Execute -- E1)}
+Given $\beta = 0.5$ and log-ratio values $\beta$-scaled to $1.2$ (for $y^w$) and
+$0.2$ (for $y^l$):
+\begin{align*}
+\text{argument} &= 0.5 \times (1.2 - 0.2) = 0.5 \\
+\sigma(0.5) &= \frac{1}{1+e^{-0.5}} \approx 0.622 \\
+J_{\text{DPO}} &= -\log(0.622) \approx 0.475
+\end{align*}
+\textbf{Reading the number:} the loss is moderate-sized, meaning the model
+currently favours $y^w$ over $y^l$ by only a small margin -- there is meaningful
+training signal left in this pair, unlike the earlier Bradley--Terry example
+where the reward gap was already large and confident.
+
+\subsection{DPO's advantage over full RLHF, in one sentence}
+DPO removes the separate reward-model training stage and the entire RL sampling
+loop, turning preference alignment into a single supervised, classification-style
+loss computed directly on log-probabilities -- with no reward hacking of a
+separate frozen reward model, and generally more stable and cheaper to train.
+
+\subsection{Advantages}
+\begin{itemize}
+  \item No separate reward network to train, store, or maintain.
+  \item No RL loop and no on-policy sampling during training -- ordinary
+  supervised-style optimization.
+  \item Cannot hack a reward model that does not exist as a separate object.
+\end{itemize}
+
+\subsection{Disadvantages}
+\begin{itemize}
+  \item Only ever learns \emph{relative} preferences between pairs; it never
+  produces a calibrated absolute reward for a single response.
+  \item Still fundamentally needs human (or AI) preference-pair data -- it does
+  not remove the labelling requirement, only the reward-model and RL-loop
+  machinery built on top of it.
+  \item Because there is no explicit reward model, tools that rely on an
+  explicit, standalone reward signal (e.g. for reward shaping or auditing) are
+  not directly available.
+\end{itemize}
+
+\subsection{What problem it solves}
+Removes the cost, complexity, and reward-hacking risk of the separate reward
+model plus RL loop in standard RLHF, while producing (in principle) the same
+optimal fine-tuned model.
+
+\subsection{What it cannot solve}
+Because absolute reward is unrecoverable (only known up to $\beta\log Z(x)$), DPO
+cannot supply a calibrated reward score for any single response in isolation --
+if a downstream system genuinely needs an absolute quality score (not just
+better-or-worse comparisons), DPO is the wrong tool and an explicit reward model
+is still required.
+
+\subsection{What problem it gave rise to}
+DPO still depends on a fixed, pre-collected preference dataset; it has no
+built-in mechanism to acquire fresh preference labels for new, off-distribution
+responses the way an online RLHF loop with a live reward model can. If the
+policy drifts far from the data the preference pairs were collected on, DPO has
+no online correction (unlike RLHF, which the note on slide 9 mentions can be run
+inside the loop of online RL).
+
+\subsection{When to use it}
+Use DPO when a fixed preference dataset is already available and the goal is a
+stable, cheap, single-stage fine-tune, with no need for an explicit, standalone
+reward model afterward.
+
+\subsection{When not to use it}
+Avoid DPO when the application specifically needs an absolute, calibrated reward
+score (e.g. to combine with other scoring systems, or for reward shaping in a
+downstream RL problem), or when preference data needs to be collected
+continually, on-policy, as training proceeds.
+
+\subsection{Counterfactual -- what if a part were done differently?}
+If Step 3 had substituted $p^{RL}_\theta$ for a response to a \emph{different}
+prompt $x'$ instead of the same prompt $x$, the $Z(x)$ terms would not match
+($\beta\log Z(x) \ne \beta\log Z(x')$) and would not cancel -- this is precisely
+why DPO's preference pairs must always compare two responses to the \emph{same}
+prompt.
+
+\section{Learning Reward from AI Feedback (RLAIF / Constitutional RL)}
+
+\subsection{What is the concept?}
+Instead of asking a human ``which response is less harmful?'', ask another
+language model the same question, and use its answer in place of a human
+preference label everywhere in the pipeline above (Sections 3--5).
+
+\subsection{The key insight (slide 15), quoted as the exam wants it}
+\emph{``Critique is easier than generation.''} A model that cannot reliably
+\emph{produce} the best possible response can still reliably \emph{judge} which
+of two given responses is less harmful. That asymmetry between generating and
+judging is the entire justification for letting an AI stand in for a human
+annotator.
+
+\subsection{Plain-English explanation}
+Imagine a student who cannot write a great essay from scratch, but who can still
+tell you, given two draft essays, which one reads better. Judging is often a much
+easier skill than creating. RLAIF leans on exactly this: even if a language model
+is not good enough to write the best possible answer, it can often be trusted to
+say ``answer A is safer than answer B.''
+
+\subsection{Advantages at scale}
+\begin{itemize}
+  \item Essentially unlimited throughput, at a tiny marginal cost compared to
+  paying and scheduling human annotators.
+  \item Consistent application of a single, written policy or ``constitution,''
+  with no annotator-to-annotator variance or annotator fatigue over long
+  sessions.
+  \item Scales instantly to new content volumes.
+  \item Avoids exposing human moderators to large volumes of harmful or
+  disturbing content.
+\end{itemize}
+
+\subsection{The unique risk -- Bound the claim (E5)}
+\textbf{The one risk that does not apply to human annotators:} the AI
+annotator's own biases and blind spots are \emph{systematic and correlated
+across every single label it produces}. Independent human annotators make noisy,
+largely independent mistakes that tend to average out across a large dataset. A
+single AI annotator model does not have that property -- if it has a blind spot,
+that exact blind spot shows up identically in every label it touches. The reward
+model then inherits that bias wholesale, and the RL policy optimizes directly
+against it, with nothing independent left anywhere in the loop to catch the
+drift.
+
+\subsection{Result from the slides (slide 15, Pareto plot)}
+Constitutional RL (AI feedback with a written constitution) is shown tracing out
+a curve strictly above and to the right of standard RLHF on a plot of
+helpfulness versus harmlessness -- described on the slide as a \emph{Pareto
+improvement}: better on both axes at once, not merely a trade of one for the
+other.
+
+\subsection{Comparison table: goal classifiers vs. RLHF}
+\begin{center}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{3.4cm}|>{\raggedright\arraybackslash}p{5.0cm}|>{\raggedright\arraybackslash}p{5.0cm}|}
+\hline
+\textbf{Aspect} & \textbf{Goal classifier} & \textbf{RLHF (human preferences)} \\
+\hline
+Type of human input & A set of labelled example states (success/failure), given
+once, up front & Ongoing pairwise comparisons between rollouts or responses \\
+\hline
+Handles nuanced quality? & No -- binary success/failure only; cannot rank two
+successes against each other & Yes -- relative preferences give a graded,
+continuous reward signal \\
+\hline
+Main failure mode & Agent exploits states the classifier was never trained on &
+Reward hacking / over-optimization of the learned reward model \\
+\hline
+\end{longtable}
+\end{center}
+\textbf{The connection to notice:} these are the \emph{same underlying failure}
+(a learned proxy gets exploited by the optimizer built on top of it) showing up
+at two different scales of the same idea.
+
+\subsection{Advantages}
+\begin{itemize}
+  \item Removes the human-labelling bottleneck almost entirely.
+  \item More consistent than a pool of human annotators.
+\end{itemize}
+
+\subsection{Disadvantages}
+\begin{itemize}
+  \item Inherits and amplifies the annotator model's own systematic biases,
+  correlated across the entire dataset.
+  \item No independent ground truth left in the loop to detect when the
+  annotator model itself has drifted or is wrong.
+\end{itemize}
+
+\subsection{What problem it solves}
+Removes the cost and throughput bottleneck of collecting human preference labels
+at the scale needed for large models.
+
+\subsection{What it cannot solve}
+It cannot supply an independent check on the annotator's own judgment -- if the
+annotator model is systematically biased or has a blind spot, RLAIF has no
+built-in way to detect or correct that, unlike a diverse pool of independent
+human annotators whose individual errors tend to cancel out.
+
+\subsection{What problem it gave rise to}
+The systematic-bias risk described above is a new, distinct failure mode that a
+purely human-labelled pipeline did not have to the same degree -- it motivates
+ongoing research into diversifying or auditing AI annotators, and combining AI
+and human feedback rather than relying on either alone.
+
+\subsection{When to use it}
+Use RLAIF when human-labelling throughput is the bottleneck, when a clear written
+policy (a ``constitution'') can specify what ``better'' means, and when some risk
+of correlated annotator bias is acceptable or can be independently audited.
+
+\subsection{When not to use it}
+Avoid relying on RLAIF alone when independent ground truth or auditability is
+critical, or when the judging model itself is known to share the same blind
+spots you are trying to correct for in the policy being trained.
+
+\subsection{Counterfactual}
+If the AI annotator were replaced by a diverse panel of several different AI
+models (rather than one), the correlated-bias risk described above would be
+reduced, because different models are less likely to share the exact same blind
+spots -- much closer to how independent human annotators' errors average out.
+
+\section{Summary: The Thread Running Through the Whole Lecture}
+
+\begin{center}
+\begin{longtable}{|>{\raggedright\arraybackslash}p{4.2cm}|>{\raggedright\arraybackslash}p{9.3cm}|}
+\hline
+\textbf{Stage} & \textbf{The recurring pattern} \\
+\hline
+Hand-designed reward & Impossible to write for most real tasks. \\
+\hline
+Goal classifier & A learnable stand-in, but the RL agent exploits states the
+classifier was never trained on. \\
+\hline
+Retrain on visited states & Removes the exploit, but only gives a binary
+success/failure signal. \\
+\hline
+Human preferences (Bradley--Terry) & Gives a graded signal instead of binary, but
+needs a full RLHF pipeline (reward model + RL loop) to use it. \\
+\hline
+RLHF with KL penalty & Works, but the RL policy can over-optimize
+(``reward-hack'') the learned reward model, off its valid distribution. \\
+\hline
+DPO & Removes the separate reward model and RL loop entirely, but only ever
+recovers \emph{relative}, not absolute, reward. \\
+\hline
+RLAIF & Removes the human-labelling bottleneck, but introduces a new, systematic
+(not averaging-out) annotator-bias risk. \\
+\hline
+\end{longtable}
+\end{center}
+
+\noindent\textbf{The single sentence to remember:} optimizing a learned proxy for
+an objective makes the optimizer seek out exactly the places where the proxy is
+wrong -- this is the same phenomenon behind classifier exploitation, RLHF reward
+hacking, and (per the exam-focus guide) OOD value overestimation in offline RL
+from Lecture 08. Naming this connection, in one sentence, whenever a question
+touches any one of these three ideas is repeatedly flagged as the mark of real
+understanding rather than memorized recall.
+
+\end{document}
