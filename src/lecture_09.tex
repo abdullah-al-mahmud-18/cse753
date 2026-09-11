@@ -15,23 +15,7 @@
 \begin{document}
 \maketitle
 
-\noindent This note covers Lecture 09 (Reward Learning: goal classifiers, learning
-reward from human preferences, RLHF, DPO, and RLAIF). It is built from the lecture
-slides, the exam-focus guide, and the ``what is expected'' guide. Each concept is
-explained twice: once in plain, everyday language, and once with the precise
-technical statement a grader expects. Every equation is broken into a symbol table.
-Places where the slides contain a typo or an ambiguity are flagged explicitly,
-because the exam is open-book and rewards students who notice these and state a
-clean assumption.
-
 \bigskip
-\noindent\textbf{The one idea that ties this whole lecture together:} whenever we
-replace the true objective with a learned stand-in (a classifier, a reward model),
-the optimizer will chase the places where the stand-in is \emph{wrong}, not just
-the places where it is right. Every failure mode in this lecture -- classifier
-exploitation, reward hacking under RLHF -- is this same idea wearing a different
-costume. Say this explicitly on the exam whenever it is relevant; it is repeatedly
-flagged as a full-marks signal.
 
 \section{Where Does the Reward Come From?}
 
@@ -134,7 +118,7 @@ weaknesses}.
   guessing), and RL will happily steer toward whichever unseen state happens to
   score high, even though it is not a real success.
 \end{enumerate}
-\textbf{Canonical example (from the exam-focus guide):} a cup left upside down on
+\textbf{Canonical example:} a cup left upside down on
 a coaster scores $0.91$ from the classifier even though the task was never
 completed -- the classifier had never seen an upside-down cup during training, so
 it guessed, and it guessed wrong in a way that happened to reward the agent.
@@ -189,10 +173,6 @@ because the goal states ``look different.'' Work through it:
   \item A true failure state, by contrast, appears \emph{only} in $D_-$ and gets
   driven toward $0$.
 \end{itemize}
-\textbf{Why this matters for exam marks:} an answer that says ``it still works
-because the goal state looks different from other states'' earns zero credit.
-The question is specifically testing whether you know it is the \emph{balancing
-step} doing the work, not anything about the state's appearance.
 
 \subsection{Advantages}
 \begin{itemize}
