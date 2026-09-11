@@ -77,8 +77,8 @@ In plain words: if two genuinely different situations look identical to your pol
   \item \textbf{What it is:} a stochastic policy picks actions with some randomness (a chance for each action); a deterministic policy always outputs one fixed action.
   \item \textbf{Advantage:} when the policy can't fully tell two situations apart, the best stochastic policy can genuinely beat every possible deterministic policy, as shown by the $-11.6$ example above. It also helps the agent explore instead of getting stuck doing the same thing forever.
   \item \textbf{Disadvantage:} it adds unpredictability, which can be a problem in situations where you truly need one reliable, repeatable action; it also makes the behaviour harder to test and double-check.
-  \item \textbf{Problem it solves:} it rescues performance when the way we represent the state hides some real difference between situations.
-  \item \textbf{Problem it cannot solve:} it does not fix the underlying issue of the state representation losing information --- the policy is just making the best of a bad hand it was dealt.
+  \item \textbf{Problem it solves:} If two different situations look exactly the same to the agent (because the state description leaves out some important detail), a stochastic policy can still do okay by mixing up its actions instead of always doing the same one.
+  \item \textbf{Problem it cannot solve:} It doesn't actually give the agent the missing information. The agent still can't tell the situations apart — it's just guessing smarter, not seeing more clearly.
   \item \textbf{When to use it:} whenever the state you show the policy might be hiding useful details, or when you need the agent to explore.
   \item \textbf{When not to use it:} when the state already tells the policy everything it needs to know, and one best action truly exists and is knowable --- adding randomness there would only make things worse.
 \end{itemize}
