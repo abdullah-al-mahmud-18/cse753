@@ -14,7 +14,9 @@
 \maketitle
 \sloppy
 
+%==============================================================================================
 \section{Lecture 06: Policy Gradient Methods}
+%==============================================================================================
 
 \subsection{From value tables to a direct policy (Slides 2--3)}
 
@@ -316,7 +318,9 @@ In plain words: on average, across the situations the old policy usually finds i
   \item \textbf{What would change if done differently:} if we used the whole-run product of ratios instead of the safer per-timestep version, the numbers would blow up or vanish for almost any reasonably long run.
 \end{itemize}
 
+%==============================================================================================
 \section{Lecture 07: Actor-Critic Methods}
+%==============================================================================================
 
 \subsection{Revisiting value functions and defining Advantage (Slide 2)}
 \begin{align*}
@@ -416,46 +420,18 @@ The second fix, instead of limiting the KL divergence directly (which is expensi
 $$\nabla_{\theta'}J(\theta') \approx \sum_{i}\sum_t \frac{\pi_{\theta'}(a_{i,t}\mid s_{i,t})}{\pi_\theta(a_{i,t}\mid s_{i,t})}\,\nabla_{\theta'}\log\pi_{\theta'}(a^i_t\mid s^i_t)\,\hat A^{\pi_\theta}(s_{i,t},a_{i,t}).$$
 Using the same rearranging trick from Lecture 06 (that $p_\theta(\tau)\nabla_\theta\log p_\theta(\tau) = \nabla_\theta p_\theta(\tau)$, run in reverse), this gradient turns out to be exactly the gradient of a simpler-looking single number, called the \textbf{surrogate objective}:
 $$\tilde J(\theta') \approx \sum_{t,i} \frac{\pi_{\theta'}(a_{i,t}\mid s_{i,t})}{\pi_\theta(a_{i,t}\mid s_{i,t})}\,\hat A^{\pi_\theta}(s_{i,t},a_{i,t}).$$
-\begin{center}
-\begin{tabular}{@{} >{\raggedright\arraybackslash}p{0.22\textwidth} >{\raggedright\arraybackslash}p{0.68\textwidth} @{}}
-\toprule
-\textbf{Symbol} & \textbf{What it means} \\
-\midrule
-$\tilde J(\theta')$ & just one number we can directly try to make as large as possible, using any standard optimizer, without ever manually writing out the "log-probability times advantage" gradient formula ourselves --- its gradient, computed at $\theta'=\theta$, automatically gives back the exact actor-critic gradient shown above. \\
-\bottomrule
-\end{tabular}
-\end{center}
 
 In plain words: instead of hand-coding the "make good actions more likely" gradient formula, we can just hand this simple ratio-times-advantage number to an automatic optimizer, and pushing it up will naturally increase the probability of high-advantage actions. But the catch, again: this shortcut number is only a trustworthy stand-in for the real objective $J$ when $\theta'$ stays close to $\theta$. If $\theta'$ is allowed to wander too far while chasing a bigger $\tilde J(\theta')$, the policy is again tempted to overfit to this one batch, exactly like before.
 
 \subsection{PPO Trick \#1 and \#2: clip and take the minimum (Slide 12)}
 The first trick is to cap, or "clip," the ratio:
 $$\tilde J(\theta') \approx \sum_{t,i} \text{clip}\!\left(\frac{\pi_{\theta'}(a_{i,t}\mid s_{i,t})}{\pi_\theta(a_{i,t}\mid s_{i,t})},\,1-\epsilon,\,1+\epsilon\right)\hat A^{\pi_\theta}(s_{i,t},a_{i,t}).$$
-\begin{center}
-\begin{tabular}{@{} >{\raggedright\arraybackslash}p{0.24\textwidth} >{\raggedright\arraybackslash}p{0.66\textwidth} @{}}
-\toprule
-\textbf{Symbol} & \textbf{What it means} \\
-\midrule
-$\text{clip}(x, 1-\epsilon, 1+\epsilon)$ & if $x$ already sits between $1-\epsilon$ and $1+\epsilon$, leave it alone; if $x$ is bigger than $1+\epsilon$, replace it with $1+\epsilon$; if $x$ is smaller than $1-\epsilon$, replace it with $1-\epsilon$. \\
-$\epsilon$ & just a small number (a common choice is $0.2$) that controls how far the ratio is allowed to move before it gets clamped down. \\
-\bottomrule
-\end{tabular}
-\end{center}
 
-In plain words: this directly caps how much extra credit the objective can hand out for an action whose new-policy probability has drifted very far from its old-policy probability. Once the ratio is outside the allowed band, pushing it further doesn't increase the objective anymore, which removes the temptation to keep pushing it that way.
+In plain words: the ratio $\frac{\pi_{\theta'}}{\pi_\theta}$ measures how much more (or less) likely the new policy is to take an action compared to the old policy. Without clipping, the objective keeps rewarding the optimizer more and more as this ratio grows in whatever direction the advantage favors — which gives it a direct incentive to push the new policy arbitrarily far from the old one.
 
+Clipping caps the ratio to the band $[1-\epsilon,\,1+\epsilon]$. Once the ratio for a given action leaves this band, the gradient of the clipped term becomes zero (slope is flat) — pushing the policy further in that direction no longer increases the objective. This removes the incentive to keep moving that action's probability further away, which is what keeps $\pi_{\theta'}$ from drifting too far from $\pi_\theta$ within a single update.
 The second trick is to take the smaller (the minimum) of the clipped and unclipped versions:
 $$\tilde J(\theta') \approx \sum_{t,i} \min\!\left(\frac{\pi_{\theta'}(a_{i,t}\mid s_{i,t})}{\pi_\theta(a_{i,t}\mid s_{i,t})}\hat A^{\pi_\theta}(s_{i,t},a_{i,t}),\;\; \text{clip}\!\left(\frac{\pi_{\theta'}(a_{i,t}\mid s_{i,t})}{\pi_\theta(a_{i,t}\mid s_{i,t})},\,1-\epsilon,\,1+\epsilon\right)\hat A^{\pi_\theta}(s_{i,t},a_{i,t})\right).$$
-\begin{center}
-\begin{tabular}{@{} >{\raggedright\arraybackslash}p{0.30\textwidth} >{\raggedright\arraybackslash}p{0.60\textwidth} @{}}
-\toprule
-\textbf{Part of the formula} & \textbf{What it means} \\
-\midrule
-first term inside $\min(\cdot,\cdot)$ & the plain, unclipped version from before. \\
-second term inside $\min(\cdot,\cdot)$ & the clipped version we just built. \\
-\bottomrule
-\end{tabular}
-\end{center}
 
 This is worth understanding, not just memorizing. Clipping by itself only works in one direction. Imagine a bad action, where the advantage $\hat A$ is negative, and its ratio has already dropped \emph{below} $1-\epsilon$ (meaning the new policy has already strongly moved away from this bad action --- which is a good thing!). Without the minimum, clipping that ratio back up to $1-\epsilon$ would actually make the objective's value for that term \emph{less negative} than the true, unclipped number --- which secretly hides just how far the policy has already correctly moved away from the bad action, and could even create a temptation to drift back toward it. Taking the minimum of the clipped and unclipped terms fixes this: it makes the objective always a "worst-case, no cheating" estimate, so the policy is never rewarded for having drifted further in a harmful direction --- only ever held back or left alone. As a quick worked check: with ratio $r=1.5$, advantage $\hat A=+8$, and $\epsilon=0.2$, the unclipped term is $12.0$, and the clipped term is $\text{clip}(1.5,0.8,1.2)\times 8 = 9.6$. The minimum of the two is $9.6$, so the clipped term is the one that's actually used --- telling us the update is being held back because the ratio moved outside the trusted zone.
 
