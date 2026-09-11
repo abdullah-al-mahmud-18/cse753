@@ -34,16 +34,12 @@ $\pi(a\mid s,\vec\theta)$ & the chance that, with the dials set to $\vec\theta$,
 \end{center}
 So this equation is just a definition: it's naming "the probability of taking action $a$ in state $s$, given the current dial settings" as $\pi(a\mid s,\vec\theta)$.
 
-In plain words: instead of first writing down "how good is each action," and then picking the best one, we build a machine controlled by the dials $\vec\theta$ that spits out action probabilities directly. We slowly turn the dials, a little at a time, so that good behaviour becomes more and more likely. We never need to write a $Q$-value scoreboard to pick an action anymore --- the dials themselves decide.
-
 \paragraph{Aspects of "direct policy parameterization / policy gradient methods."}
 \begin{itemize}[leftmargin=*]
-  \item \textbf{What it is:} a group of RL methods that tune the policy's own dials directly, by nudging them a little bit in the direction that increases the total reward.
-  \item \textbf{Plain explanation:} imagine turning a dial that controls how likely you are to take each possible action. After every attempt, you turn the dial a little bit toward "do more of what worked."
   \item \textbf{Advantage:} it works well even when there are a huge number of actions, or the actions are continuous (like steering angles), because you never need to search through every possible action to find the best $Q$-value. It also directly trains the exact thing you will use in the end --- the policy --- and it can naturally act in a randomised (not always-the-same) way when that is useful.
   \item \textbf{Disadvantage:} the dial-nudging direction has to be guessed from a handful of sample runs, so the guess is noisy and can wobble around a lot; it needs many tries; it can get stuck doing something that is only okay, not great.
-  \item \textbf{Problem it solves:} it avoids having to search through every action for the best $Q$-value, which value-based methods need and which becomes very hard when there are too many actions or the actions are continuous.
-  \item \textbf{Problem it cannot solve by itself:} on its own, it does not fix the "wobbly guess" (high variance) problem, or the problem of figuring out which exact action deserves credit for a good or bad result. Those need extra tricks, covered later in this document.
+  \item \textbf{Problem it solves:} Old methods had to check every single action and ask "how good is this one?" before picking the best one. That's fine if you only have a few choices, like picking a flavor from 5 ice creams. But if you have thousands of choices, or the choice is something like "turn the steering wheel by exactly this many degrees" (infinite options), checking every single one becomes impossible. Policy gradient skips this entirely — it trains the policy to just directly spit out a good action, so there's nothing to search through.
+  \item \textbf{Problem it cannot solve} Just switching to policy gradient doesn't fix two other headaches. First, since it learns from a small number of sample runs, its guess about which way to adjust the dials is shaky and jumps around a lot (this is the "wobbly guess" problem). Second, if a whole run turns out badly, policy gradient can't tell which specific action in that run actually caused the bad result — it just blames everything equally. Both of these problems still need to be fixed with extra tricks covered later.
   \item \textbf{Problems it gives rise to:} the most basic version of this idea, called REINFORCE, turns out to be noisy, bad at giving credit to the right action, and only works with fresh data from the very latest dial settings. Almost everything else in these two lectures is about fixing one of those three problems.
   \item \textbf{When to use it:} when there are many possible actions, or the actions are continuous, or you actually want some randomness in the behaviour.
   \item \textbf{When not to use it:} when there are only a few actions to choose from and a simple value-based method already works fine --- adding randomness would not help there.
@@ -148,15 +144,17 @@ In plain words: the chance of one whole run happening breaks into three pieces -
 
 Putting the pieces together, the final gradient (still Slide 8) becomes:
 \begin{small}
-$$\nabla_\theta J(\theta) = \mathbb{E}_{\tau\sim p_\theta}\left[\Big(\sum_{t=1}^{T}\nabla_\theta\log\pi_\theta(a_t\mid s_t)\Big)\Big(\sum_{t=1}^{T} r(s_t,a_t)\Big)\right] \approx \frac{1}{N}\sum_{i=1}^{N}\Big(\sum_{t=1}^{T}\nabla_\theta\log\pi_\theta(a_{i,t}\mid s_{i,t})\Big)\Big(\sum_{t=1}^{T} r(s_{i,t},a_{i,t})\Big).$$
+$$\nabla_\theta J(\theta) \approx \frac{1}{N}\sum_{i=1}^{N}\Big(\sum_{t=1}^{T}\nabla_\theta\log\pi_\theta(a_{i,t}\mid s_{i,t})\Big)\Big(\sum_{t=1}^{T} r(s_{i,t},a_{i,t})\Big)$$
 \end{small}
 \begin{center}
 \begin{tabular}{@{} >{\raggedright\arraybackslash}p{0.30\textwidth} >{\raggedright\arraybackslash}p{0.60\textwidth} @{}}
 \toprule
 \textbf{Symbol} & \textbf{What it means} \\
 \midrule
-$\sum_t \nabla_\theta\log\pi_\theta(a_t\mid s_t)$ & a whole list of numbers (one per dial), pointing in the direction that would make this exact sequence of chosen actions more likely to happen again. \\
-$\sum_t r(s_t,a_t)$ & a single number: the total reward earned in that whole run. \\
+$N$ & the number of runs (trajectories/episodes) you actually collected by running the policy. This is a number you choose, like ``collect 32 episodes before each update.'' \\
+$s_{i,t}$, $a_{i,t}$ & the specific state and action that occurred at timestep $t$, inside run $i$. The double subscript pins down ``which run'' and ``which moment in that run'' --- e.g., $s_{3,7}$ means ``the state at step 7 of run 3.'' \\
+$\sum_{t=1}^{T}\nabla_\theta\log\pi_\theta(a_{i,t}\mid s_{i,t})$ & for a single run $i$, add up the gradient contribution from every timestep in that run. Each term is a list of numbers, one per dial in $\theta$, pointing toward making the action actually taken at that step more likely next time. Summing over $t$ combines these ``make this more likely'' directions from every step into one overall direction for that run. \\
+$\sum_{t=1}^{T} r(s_{i,t},a_{i,t})$ & for that same run $i$, add up the actual reward received at every timestep. This gives a single number: the total reward that run earned, start to finish. \\
 \bottomrule
 \end{tabular}
 \end{center}
